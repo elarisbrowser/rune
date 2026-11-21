@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 use std::sync::mpsc;
 
 pub(crate) mod animated;
@@ -179,34 +179,50 @@ const DECODERS: usize = 4;
 #[cfg(not(target_arch = "wasm32"))]
 const INLINE_RGBA_PIXELS: u64 = 64 * 64;
 
-/// The process's decoder threads, shared by every cache and started by the first image to
-/// decode: an app that makes a cache per feature, or shows no image, pays no thread for it.
-/// The caller starts one; that one starts the others, so the first image (often in a window's
-/// first frame) costs its thread one spawn, not four.
+/// The images waiting to decode, shared by every cache, and how many decoders are draining them.
+/// A decoder is a task on Rune's shared threads (`task::spawn`) that decodes until none is left:
+/// a session opening on several screenshots decodes them side by side, and with nothing to
+/// decode no thread stays for it (each kept decoder thread held its stack and its allocator
+/// pages for the process's life). Task threads reserve the stack `MAX_SVG_DEPTH` needs
+/// (`rune_core::task`'s `STACK`).
 #[cfg(not(target_arch = "wasm32"))]
-fn decoders() -> &'static mpsc::Sender<Job> {
-    static JOBS: OnceLock<mpsc::Sender<Job>> = OnceLock::new();
-    JOBS.get_or_init(|| {
-        let (jobs, receive) = mpsc::channel::<Job>();
-        // A session opening on several screenshots decodes them side by side, not one by one.
-        let receive = Arc::new(Mutex::new(receive));
-        let count = DECODERS.min(std::thread::available_parallelism().map_or(1, |n| n.get()));
-        let first = receive.clone();
-        std::thread::Builder::new().name("rune-images".into()).spawn(move || {
-            for _ in 1..count {
-                let receive = receive.clone();
-                std::thread::Builder::new().name("rune-images".into()).spawn(move || decode_jobs(&receive)).ok();
-            }
-            decode_jobs(&first);
-        }).expect("image worker");
-        jobs
-    })
+static DECODING: Mutex<(std::collections::VecDeque<Job>, usize)> = Mutex::new((std::collections::VecDeque::new(), 0));
+
+/// Queues `job`, and starts a decoder for it while fewer than one per core (at most
+/// [`DECODERS`]) run. False when no decoder runs and none could start.
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_later(job: Job) -> bool {
+    let mut d = DECODING.lock().unwrap_or_else(|e| e.into_inner());
+    d.0.push_back(job);
+    let most = DECODERS.min(std::thread::available_parallelism().map_or(1, |n| n.get()));
+    if d.1 >= most {
+        return true;
+    }
+    d.1 += 1;
+    drop(d);
+    if rune_core::task::spawn("rune-images", decode_jobs).is_ok() {
+        return true;
+    }
+    let mut d = DECODING.lock().unwrap_or_else(|e| e.into_inner());
+    d.1 -= 1;
+    if d.1 > 0 {
+        return true;
+    }
+    d.0.pop_back();
+    false
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn decode_jobs(receive: &Mutex<mpsc::Receiver<Job>>) {
+fn decode_jobs() {
     loop {
-        let Ok(job) = receive.lock().unwrap_or_else(|e| e.into_inner()).recv() else { return };
+        let job = {
+            let mut d = DECODING.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(job) = d.0.pop_front() else {
+                d.1 -= 1;
+                return;
+            };
+            job
+        };
         job.image.finish(job.input.decode_caught());
         (job.waker)();
     }
@@ -356,7 +372,7 @@ impl ImageCache {
             return image;
         }
         #[cfg(not(target_arch = "wasm32"))]
-        if decoders().send(Job { image: image.clone(), input, waker: self.waker.clone() }).is_err() {
+        if !decode_later(Job { image: image.clone(), input, waker: self.waker.clone() }) {
             image.0.decoded.set(Err(ImageError("image worker stopped".into()))).ok();
         }
         #[cfg(target_arch = "wasm32")]
@@ -457,10 +473,111 @@ fn svg_options() -> resvg::usvg::Options<'static> {
     }
 }
 
+/// Maximum nested XML container elements inside an SVG's root element (513 open elements in all,
+/// matching Blink's 512-element HTML/SVG tree bound; Chromium's standalone XML limit of 5,000
+/// exceeds both `usvg`'s 1,024 node cap and a worker stack at ~4.5 KiB per `<g>`).
+#[cfg(feature = "svg")]
+const MAX_SVG_DEPTH: usize = 512;
+
 #[cfg(feature = "svg")]
 fn svg_tree(bytes: &[u8]) -> Result<resvg::usvg::Tree, ImageError> {
-    if bytes.len() > 32 << 20 { return Err(ImageError("SVG is too large".into())); }
-    resvg::usvg::Tree::from_data(bytes, &svg_options()).map_err(|e| ImageError(format!("SVG: {e}")))
+    use resvg::usvg;
+    const MAX_BYTES: usize = 32 << 20;
+    if bytes.len() > MAX_BYTES { return Err(ImageError("SVG is too large".into())); }
+    let unzipped;
+    let raw = if bytes.starts_with(&[0x1f, 0x8b]) {
+        unzipped = usvg::decompress_svgz(bytes).map_err(|e| ImageError(format!("SVG: {e}")))?;
+        if unzipped.len() > MAX_BYTES { return Err(ImageError("SVG is too large".into())); }
+        unzipped.as_slice()
+    } else {
+        bytes
+    };
+    let text = std::str::from_utf8(raw).map_err(|_| ImageError("SVG is not UTF-8".into()))?;
+    if svg_exceeds_depth(text, MAX_SVG_DEPTH) {
+        return Err(ImageError(format!("SVG exceeds maximum nesting depth of {MAX_SVG_DEPTH}")));
+    }
+    usvg::Tree::from_str(text, &svg_options()).map_err(|e| ImageError(format!("SVG: {e}")))
+}
+
+/// Iterative byte scan for open XML element depth, run before `roxmltree` so deeply nested input
+/// cannot overflow the decoder stack inside the XML parser or `usvg`/`resvg`.
+#[cfg(feature = "svg")]
+fn svg_exceeds_depth(text: &str, max_nested: usize) -> bool {
+    let b = text.as_bytes();
+    let limit = max_nested + 1;
+    let (mut i, mut depth) = (0usize, 0usize);
+    while i < b.len() {
+        let Some(rel) = b[i..].iter().position(|&c| c == b'<') else { return false };
+        i += rel;
+        if b[i..].starts_with(b"<!--") {
+            i += 4;
+            let Some(end) = b[i..].windows(3).position(|w| w == b"-->") else { return false };
+            i += end + 3;
+        } else if b[i..].starts_with(b"<![CDATA[") {
+            i += 9;
+            let Some(end) = b[i..].windows(3).position(|w| w == b"]]>") else { return false };
+            i += end + 3;
+        } else if b[i..].starts_with(b"<?") {
+            i += 2;
+            let Some(end) = b[i..].windows(2).position(|w| w == b"?>") else { return false };
+            i += end + 2;
+        } else if b[i..].starts_with(b"<!") {
+            i += 2;
+            let (mut decl, mut quote) = (1usize, 0u8);
+            while i < b.len() && decl > 0 {
+                let c = b[i];
+                if quote != 0 {
+                    if c == quote { quote = 0; }
+                } else if c == b'"' || c == b'\'' {
+                    quote = c;
+                } else if c == b'<' {
+                    decl += 1;
+                } else if c == b'>' {
+                    decl -= 1;
+                }
+                i += 1;
+            }
+        } else if b[i..].starts_with(b"</") {
+            i += 2;
+            depth = depth.saturating_sub(1);
+            let mut quote = 0u8;
+            while i < b.len() {
+                let c = b[i];
+                i += 1;
+                if quote != 0 {
+                    if c == quote { quote = 0; }
+                } else if c == b'"' || c == b'\'' {
+                    quote = c;
+                } else if c == b'>' {
+                    break;
+                }
+            }
+        } else {
+            i += 1;
+            let (mut quote, mut last_non_ws, mut closed) = (0u8, 0u8, false);
+            while i < b.len() {
+                let c = b[i];
+                i += 1;
+                if quote != 0 {
+                    if c == quote { quote = 0; }
+                } else if c == b'"' || c == b'\'' {
+                    quote = c;
+                    last_non_ws = c;
+                } else if c == b'>' {
+                    closed = true;
+                    break;
+                } else if !c.is_ascii_whitespace() {
+                    last_non_ws = c;
+                }
+            }
+            if !closed { return false; }
+            if last_non_ws != b'/' {
+                depth += 1;
+                if depth > limit { return true; }
+            }
+        }
+    }
+    false
 }
 
 #[cfg(feature = "svg")]

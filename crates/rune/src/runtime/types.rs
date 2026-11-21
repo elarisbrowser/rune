@@ -271,8 +271,9 @@ impl AnimSource {
     pub const LIVE: u16 = 256;
     pub const VIRTUAL_FILL: u16 = 512;
     pub const TEXT_FILL: u16 = 1024;
-    pub const NAMES: [&'static str; 11] =
-        ["tracks", "growth", "scroll", "reveal", "loop", "scale-settle", "video", "text-flight", "live", "virtual-fill", "text-fill"];
+    pub const ICON_ANIM: u16 = 2048;
+    pub const NAMES: [&'static str; 12] =
+        ["tracks", "growth", "scroll", "reveal", "loop", "scale-settle", "video", "text-flight", "live", "virtual-fill", "text-fill", "icon-anim"];
 
     pub fn names(bits: u16) -> Vec<&'static str> {
         Self::NAMES.iter().enumerate().filter(|(i, _)| bits & (1 << i) != 0).map(|(_, n)| *n).collect()
@@ -582,7 +583,7 @@ pub(crate) struct TreeState {
     pub(in crate::runtime) has_pixel_aspect: bool,
     pub(in crate::runtime) has_drawn_layout: bool,
     pub(in crate::runtime) has_key_up: bool,
-    pub(in crate::runtime) node_index: HashMap<NodeId, usize>,
+    pub(in crate::runtime) node_index: NodeIndex,
     /// The node ids the last build indexed its scratch by.
     pub(in crate::runtime) built_ids: Vec<NodeId>,
     /// The last commit's node buffer, emptied, for the next flatten to fill: an app of a few
@@ -619,7 +620,7 @@ impl TreeState {
             has_key_up: false,
             built: false,
             has_playground: false,
-            node_index: HashMap::default(),
+            node_index: NodeIndex::default(),
             path_ids: HashMap::default(),
             spare_nodes: Vec::new(),
             built_ids: Vec::new(),

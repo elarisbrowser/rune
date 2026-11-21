@@ -40,6 +40,10 @@ impl RuntimeCore {
         self.motion.reset_loops_active();
         self.paint.scale_frame = None;
         self.paint.videos_active = false;
+        self.paint.animated_icons = false;
+        self.paint.animated_icons_shown = false;
+        self.paint.node_animated_icon = false;
+        self.paint.icon_anim_wake = None;
         let now = crate::time::now();
         let video_clock = match self.wall_start {
             None => crate::video::Clock::Virtual(self.clock),
@@ -301,7 +305,7 @@ impl RuntimeCore {
             let steps = pinh.snap.steps || n.vis.cold.get().is_some_and(|c| c.motion_snaps);
             let rest = if snaps && animating && !steps { self.scene.rest(n.id) } else { None };
             let gliding = snaps && (rest.is_some() || !unscaled);
-            let (r, snap_rest) = if !snaps {
+            let (mut r, snap_rest) = if !snaps {
                 (r_exact, None)
             } else if rest.is_none() && unscaled {
                 self.paint.pixel_snap.at_rest(n.id, r_exact, rigid, pinh.snap.parent)
@@ -309,6 +313,13 @@ impl RuntimeCore {
                 let motion = pixel_snap::motion(&p, rest, s, n.above.is_some(), self.paint.row_h[i] >= 0.0);
                 let raw = if unscaled { r_exact } else { raw_edges.map(snap_px) };
                 self.paint.pixel_snap.snapped(n.id, motion, (r_exact, raw), rigid, (snap_layer, sc), pinh.snap.parent)
+            };
+            let hairline_alpha = if n.vis.cold.get().is_some_and(|c| c.hairline) {
+                let (hr, a) = pixel_snap::hairline(r, r_exact);
+                r = hr;
+                a
+            } else {
+                1.0
             };
             let (w, h) = ((r[2] - r[0]).max(0.0), (r[3] - r[1]).max(0.0));
             // `El::rotate`: this subtree draws into a layer turned about its origin.
@@ -470,6 +481,7 @@ impl RuntimeCore {
             let painted = !skip_paint && effective_opacity > 0.001 && o > 0.001 && paint_visible;
             // Unpulled out of sight, a video still counts, so a scroll across a clip edge doesn't commit.
             if !painted && let Some((surface, _)) = &n.vis.surface { video_signature = crate::video::fold_unpulled(video_signature, surface); }
+            self.paint.node_animated_icon = false;
             let faded_slot = if painted {
                 self.paint_node_box(
                     i,
@@ -483,7 +495,7 @@ impl RuntimeCore {
                     w,
                     h,
                     sc,
-                    o,
+                    o * hairline_alpha,
                     effective_opacity,
                     base_opacity,
                     p.draw,
@@ -627,7 +639,10 @@ impl RuntimeCore {
             if self.tree.has_sticky {
                 self.fade_below_header(i, s);
             }
-            self.keep_painted(i, own_turn.is_none() && !opens_snap_layer && snap_layer == 0 && !in_cache && !skip_paint && cover.is_none() && !lift && !raised);
+            self.keep_painted(i, !self.paint.node_animated_icon && own_turn.is_none() && !opens_snap_layer && snap_layer == 0 && !in_cache && !skip_paint && cover.is_none() && !lift && !raised);
+        }
+        if !self.paint.icon_anim_mounts.is_empty() {
+            self.paint.icon_anim_mounts.retain(|(id, _), _| self.tree.node_index.contains_key(id));
         }
         self.keep_close(None, &mut layers, &mut active_cache, &mut glyph_count);
         self.keep_end();

@@ -111,6 +111,7 @@ atoms! {
     Focusable = "focusable",
     Disabled = "disabled",
     HelpSide = "helpSide",
+    HelpOpen = "helpOpen",
     FadeOut = "fadeOut",
     Dir = "dir",
 }
@@ -559,6 +560,12 @@ impl Props {
                     with(e, |e| e.help_side(side));
                 }
             }
+            // A Copy button's "Copied" held up after the press (`El::help_open`).
+            Atom::HelpOpen => {
+                if flag(v)? {
+                    with(e, |e| e.help_open(true));
+                }
+            }
             Atom::FadeOut => self.fade_out = flag(v)?,
             // HTML's `dir`: `ltr` or `rtl` lays the subtree out that way whatever the window's
             // direction, `auto` takes a text's first strong direction.
@@ -686,6 +693,7 @@ fn role(s: &str) -> Option<&'static str> {
         "heading" => "heading",
         "img" => "img",
         "status" => "status",
+        "timer" => "timer",
         "alert" => "alert",
         _ => return None,
     })
