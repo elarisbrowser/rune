@@ -56,6 +56,8 @@ pub(crate) struct HostState {
     pub(crate) announcement: crate::a11y::Announcement,
     /// The accessibility tree, while an assistive client listens (`a11y/tree.rs`).
     pub(in crate::runtime) a11y: Option<Box<crate::a11y::tree::A11yTree>>,
+    /// Foreign trees grafted under elements (`a11y/graft.rs`), kept whether or not anyone listens.
+    pub(crate) a11y_grafts: crate::a11y::Grafts,
     /// The band of a taller document the window draws (`App::web_document`).
     pub(in crate::runtime) page: Option<web_page::Page>,
 }
@@ -94,6 +96,7 @@ impl HostState {
             next_file_dialog: 0,
             announcement: Default::default(),
             a11y: None,
+            a11y_grafts: Default::default(),
             page: None,
         }
     }

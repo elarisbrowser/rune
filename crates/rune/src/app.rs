@@ -65,6 +65,7 @@ pub struct App<S: 'static> {
     pub(crate) keep_running: bool,
     pub(crate) on_close: Option<fn(&mut S, &mut Tx)>,
     pub(crate) on_close_request: Option<fn(&mut S, &mut Tx) -> bool>,
+    pub(crate) on_accessibility_action: Option<fn(&mut S, accesskit::ActionRequest, &mut Tx)>,
     pub(crate) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(crate) turn_scope: Option<TurnScope<S>>,
     pub(crate) on_rest: Option<fn(&mut S, &mut Tx) -> bool>,
@@ -121,6 +122,7 @@ impl<S: 'static> App<S> {
             keep_running: false,
             on_close: None,
             on_close_request: None,
+            on_accessibility_action: None,
             on_quit: None,
             turn_scope: None,
             on_rest: None,
@@ -440,6 +442,15 @@ impl<S: 'static> App<S> {
     /// windows only.
     pub fn on_close_request(mut self, f: fn(&mut S, &mut Tx) -> bool) -> Self {
         self.on_close_request = Some(f);
+        self
+    }
+
+    /// Runs when assistive technology asks something of a node in a foreign tree an element
+    /// grafts ([`El::accessibility_graft`](crate::El::accessibility_graft)): the request's
+    /// `target_tree` names the tree and `target_node` the node, in that tree's ids. Requests on
+    /// Rune's own elements go to their handlers instead. Native windows only.
+    pub fn on_accessibility_action(mut self, f: fn(&mut S, accesskit::ActionRequest, &mut Tx)) -> Self {
+        self.on_accessibility_action = Some(f);
         self
     }
 

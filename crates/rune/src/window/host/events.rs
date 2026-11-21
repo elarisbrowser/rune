@@ -187,6 +187,7 @@ impl Host {
         let Some(w) = self.win.as_mut() else { return };
         let Some(adapter) = w.a11y.as_mut() else { return };
         if adapter.receive_core(self.app.rt_mut(), self.geometry.title) { w.request_redraw(); }
+        self.app.run_accessibility_actions();
     }
 
     /// Sends the tree's changes at the end of the turn, after its frames.

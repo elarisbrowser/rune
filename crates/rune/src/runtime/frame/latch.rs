@@ -116,6 +116,13 @@ impl RuntimeCore {
         }
         if let Some(title) = tx.title.take() { self.host.window_title.set(title); }
         if let Some((text, how)) = tx.announce.take() { self.host.announcement.say(text, how); }
+        let listening = self.host.a11y().is_some();
+        for change in std::mem::take(&mut tx.a11y_subtrees) {
+            match change {
+                crate::el::SubtreeChange::Update(update) => self.host.a11y_grafts.push(update, listening),
+                crate::el::SubtreeChange::Remove(tree) => self.host.a11y_grafts.remove(tree),
+            }
+        }
         if let Some(mut request) = tx.window_frame.take() {
             request.spring = (request.animate && !tx.commit.snaps() && !self.reduced_motion).then(|| tx.motion.map_or(crate::tok::motion::DEFAULT, MotionSource::spring));
             self.host.window_frame = Some(self.host.window_frame.unwrap_or_default().merge(request));

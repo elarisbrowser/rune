@@ -39,6 +39,8 @@ pub(in crate::window) trait WindowApp {
     fn run_on_close(&mut self);
     /// Asks `App::on_close_request` whether a close the user asked for may go ahead.
     fn allow_close_request(&mut self) -> bool;
+    /// Runs `App::on_accessibility_action` for each request on a grafted tree's nodes.
+    fn run_accessibility_actions(&mut self);
     fn run_on_quit(&mut self) -> bool;
     fn run_on_rest(&mut self);
     fn queue_on_reopen(&mut self, has_visible_windows: bool) -> Option<Arc<AtomicBool>>;
@@ -181,6 +183,7 @@ pub(super) struct TypedWindowApp<S: 'static> {
     pub(super) on_frame_drawn: Option<OnFrameDrawn<S>>,
     pub(super) on_close: Option<fn(&mut S, &mut Tx)>,
     pub(super) on_close_request: Option<fn(&mut S, &mut Tx) -> bool>,
+    pub(super) on_accessibility_action: Option<fn(&mut S, accesskit::ActionRequest, &mut Tx)>,
     pub(super) on_rest: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(super) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(super) on_reopen: Option<fn(&mut S, bool, &mut Tx) -> bool>,
@@ -220,6 +223,14 @@ impl<S: 'static> WindowApp for TypedWindowApp<S> {
         let mut allow = true;
         self.rt.update(|state, tx| allow = f(state, tx));
         allow
+    }
+
+    fn run_accessibility_actions(&mut self) {
+        let requests = self.rt.core_mut().host.a11y_grafts.take_actions();
+        let Some(f) = self.on_accessibility_action else { return };
+        for request in requests {
+            self.rt.update(|state, tx| f(state, request, tx));
+        }
     }
 
     fn run_on_quit(&mut self) -> bool {

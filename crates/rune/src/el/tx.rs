@@ -84,6 +84,8 @@ pub struct Tx {
     pub(crate) title: Option<String>,
     /// `Tx::announce`: what a screen reader says after this handler.
     pub(crate) announce: Option<(String, crate::LiveRegion)>,
+    /// `Tx::update_accessibility_subtree` and `Tx::remove_accessibility_subtree`, in order.
+    pub(crate) a11y_subtrees: Vec<SubtreeChange>,
     pub(crate) open_urls: Vec<crate::open_url::Link>,
     pub(crate) trace: Option<TraceCalls>,
     pub(crate) popups: Vec<crate::popup_menu::Call>,
@@ -446,6 +448,21 @@ impl Tx {
         if how != crate::LiveRegion::Off { self.announce = Some((text.into(), how)); }
     }
 
+    /// Send assistive technology `update` for a foreign tree an element grafts
+    /// ([`El::accessibility_graft`](crate::El::accessibility_graft)), as AccessKit takes one:
+    /// `update.tree_id` names the tree, node bounds are in points from the grafting element's
+    /// top-left corner, and the first update (and any that replaces the whole tree) carries
+    /// `TreeInfo`. Rune keeps the tree's latest nodes, so a reader that starts later gets all of
+    /// it. Updates for a tree no element grafts wait until one does.
+    pub fn update_accessibility_subtree(&mut self, update: accesskit::TreeUpdate) {
+        self.a11y_subtrees.push(SubtreeChange::Update(update));
+    }
+
+    /// Forget a foreign tree [`Tx::update_accessibility_subtree`] sent, once nothing grafts it.
+    pub fn remove_accessibility_subtree(&mut self, tree: accesskit::TreeId) {
+        self.a11y_subtrees.push(SubtreeChange::Remove(tree));
+    }
+
     /// Open `url` in the system's default handler once this handler's frame is done: a browser
     /// for `http:` and `https:`, the mail app for `mailto:`. Other schemes (`file:`, an app's
     /// own) and malformed links are refused here with the reason and nothing opens. Headless
@@ -752,4 +769,11 @@ thread_local! {
     /// `Tx::prepare_text`'s latest request on this thread: the view, boxed, and its size in points
     /// if not the window's.
     static PREPARE: std::cell::RefCell<Option<(Box<dyn std::any::Any>, Option<(f32, f32)>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A change to a foreign accessibility tree a handler asked for.
+#[derive(Clone, Debug)]
+pub(crate) enum SubtreeChange {
+    Update(accesskit::TreeUpdate),
+    Remove(accesskit::TreeId),
 }

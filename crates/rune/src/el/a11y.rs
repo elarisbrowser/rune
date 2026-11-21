@@ -58,6 +58,8 @@ pub(crate) struct A11yMore {
     pub described_by: Option<Cow<'static, str>>,
     /// `El::busy`.
     pub busy: bool,
+    /// `El::accessibility_graft`: the foreign tree this element hosts.
+    pub graft: Option<accesskit::TreeId>,
 }
 
 /// Accessibility state beyond role and label (`El::level`, `El::expanded`, `El::secure`, and
@@ -101,6 +103,19 @@ impl El {
         self.handlers.on_press = Some(std::rc::Rc::new(move |_, tx: &mut crate::Tx| {
             if url.contains(':') { tx.open_url(&url).ok(); }
         }));
+        self
+    }
+
+    /// Host another accessibility tree here, as AccessKit grafts one: assistive technology
+    /// reads the nodes the app pushes for `tree` with
+    /// [`Tx::update_accessibility_subtree`](crate::Tx::update_accessibility_subtree) as this
+    /// element's content, positioned from its top-left corner in points, and follows keyboard
+    /// focus into that tree's focus while this element holds focus. Actions a reader asks of
+    /// those nodes go to [`App::on_accessibility_action`](crate::App::on_accessibility_action).
+    /// The element's own children are left out of the accessibility tree. Use it for content
+    /// Rune doesn't lay out itself, such as a document another engine renders into a surface.
+    pub fn accessibility_graft(mut self, tree: accesskit::TreeId) -> Self {
+        self.cold_mut().a11y.more().graft = Some(tree);
         self
     }
 

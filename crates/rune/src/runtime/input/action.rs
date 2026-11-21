@@ -233,6 +233,7 @@ pub(crate) fn merge(tx: &mut Tx, one: Tx) {
     tx.keys.extend(one.keys);
     if one.title.is_some() { tx.title = one.title; }
     if one.announce.is_some() { tx.announce = one.announce; }
+    tx.a11y_subtrees.extend(one.a11y_subtrees);
     tx.playground.extend(one.playground);
     tx.open_urls.extend(one.open_urls);
     tx.srgb_blend = one.srgb_blend.or(tx.srgb_blend);

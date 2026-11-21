@@ -74,6 +74,8 @@ pub(crate) struct A11yTree {
     pub(crate) name: String,
     /// What the last update changed, beyond what AccessKit announces itself.
     changes: Changes,
+    /// Foreign trees whose graft node this adapter holds, and so has their nodes.
+    pub(super) grafted: std::collections::HashSet<TreeId>,
 }
 
 /// What an update changed that AccessKit's platform adapters don't announce: nodes added,
@@ -83,6 +85,13 @@ pub(crate) struct A11yTree {
 pub(crate) struct Changes {
     pub(crate) structure: bool,
     pub(crate) moved: bool,
+}
+
+impl A11yTree {
+    /// The foreign trees whose graft nodes this adapter was last sent.
+    pub(super) fn grafts_sent(&self) -> std::collections::HashSet<TreeId> {
+        self.sent.values().filter_map(|s| s.node.tree_id()).collect()
+    }
 }
 
 struct Sent {
@@ -148,7 +157,7 @@ pub(super) fn mix(h: u64, v: u64) -> u64 { (h.rotate_left(5) ^ v).wrapping_mul(0
 
 pub(super) fn round(v: f32) -> f64 { (f64::from(v) * 32.0).round() / 32.0 }
 
-pub(super) fn rect(r: [f32; 4], shift: [f32; 2]) -> AkRect {
+pub(crate) fn rect(r: [f32; 4], shift: [f32; 2]) -> AkRect {
     let (x, y) = (round(r[0] + shift[0]), round(r[1] + shift[1]));
     AkRect { x0: x, y0: y, x1: x + round(r[2].max(0.0)), y1: y + round(r[3].max(0.0)) }
 }
@@ -588,6 +597,12 @@ impl RuntimeCore {
             self.a11y_text_nodes(i, &s.walk, &mut text);
             let mut text = text.into_iter();
             let (id, mut node) = text.next().unwrap_or((s.id, AkNode::new(s.role)));
+            if self.a11y_graft_node(i, &mut node) {
+                // Its foreign tree is its content; its own children stay out.
+                children[k].clear();
+                out.push((id, node, s.print));
+                continue;
+            }
             let mut kids = node.children().to_vec();
             kids.append(&mut children[k]);
             node.set_children(kids);

@@ -13,6 +13,10 @@ use crate::runtime::Runtime;
 
 pub(crate) mod actions;
 pub(crate) mod dump;
+mod graft;
+#[cfg(test)]
+mod graft_tests;
+pub(crate) use graft::Grafts;
 mod node;
 pub(crate) mod roles;
 #[cfg(test)]
@@ -186,6 +190,10 @@ impl AccessibilityLink {
         }
         let mut queued = false;
         for request in &inbox.actions {
+            if request.target_tree != accesskit::TreeId::ROOT {
+                rt.host.a11y_grafts.queue_action(request.clone());
+                continue;
+            }
             let ran = rt.a11y_action(request);
             if log() { eprintln!("rune: a11y {name:?}: {:?} on {:?} {}", request.action, request.target_node, if ran { "queued" } else { "refused" }); }
             queued |= ran;
@@ -297,6 +305,10 @@ impl Adapter {
             self.send(update);
             #[cfg(all(feature = "accessibility", target_os = "windows"))]
             self.inner.notify(rt.a11y_changes());
+        }
+        // After the root's update, which carries any graft node a tree hangs from.
+        for update in rt.a11y_graft_updates() {
+            self.send(update);
         }
     }
 }

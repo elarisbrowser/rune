@@ -38,8 +38,13 @@ impl RuntimeCore {
             has_text: text.is_some_and(|t| !t.source_text().trim().is_empty() || t.redacted),
             image: n.vis.pixels.is_some() || n.vis.surface.is_some(),
         };
+        let role = roles::map(n.role, &cx);
+        // A graft hosts a foreign tree, so it is always in the tree to hang it from.
+        if n.a11y.more.as_deref().is_some_and(|m| m.graft.is_some()) {
+            return Some(role.unwrap_or(Role::GenericContainer));
+        }
         // A control the keyboard reaches is always in the tree, whatever its role says.
-        roles::map(n.role, &cx).or_else(|| (input.is_some() || self.can_focus(i)).then_some(Role::Group))
+        role.or_else(|| (input.is_some() || self.can_focus(i)).then_some(Role::Group))
     }
 
     /// A hash of everything [`Self::a11y_node`] and its text's lines and links read of node
@@ -59,6 +64,7 @@ impl RuntimeCore {
         n.a11y.live.hash(&mut h);
         if let Some(m) = n.a11y.more.as_deref() {
             (&m.description, &m.value, &m.set, &m.shortcut, m.invalid, m.read_only, m.sorted, m.busy).hash(&mut h);
+            m.graft.map(|t| t.0.as_u128()).hash(&mut h);
             [m.labelled_by.as_deref(), m.described_by.as_deref()].map(|k| k.and_then(|k| self.a11y_keyed(i, k)).map(|j| self.a11y_words(j))).hash(&mut h);
             if let Some(r) = m.range { [r.value, r.min, r.max, r.step.unwrap_or(f64::NAN)].map(f64::to_bits).hash(&mut h); }
             self.a11y_active_descendant(i).map(|j| self.tree.nodes[j].id.0).hash(&mut h);
