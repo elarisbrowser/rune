@@ -1,0 +1,1 @@
+- `App::on_close_request` (and `WindowSpec::on_close_request`) asks before a close the user requested, so an app can keep the window open and close it later with `Tx::close_window`; `rune::set_quit_guard` does the same for a macOS quit started outside the app (⌘Q, the Dock, logout), answering `applicationShouldTerminate:` with cancel when it returns false.

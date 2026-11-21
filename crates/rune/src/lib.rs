@@ -250,6 +250,7 @@ pub use quit::exit_deadline;
 pub use quit::fast_exit;
 pub use quit::orderly_exit;
 pub use quit::quitting;
+pub use quit::set_guard as set_quit_guard;
 pub use recorder::FakeMicrophone;
 pub use recorder::Level;
 pub use recorder::MicPermission;

@@ -23,10 +23,15 @@ unsafe extern "C" {
     fn class_addMethod(class: *const AnyClass, selector: Sel, implementation: *const c_void, types: *const c_char) -> Bool;
 }
 
+/// `NSTerminateCancel`.
+const TERMINATE_CANCEL: usize = 0;
 /// `NSTerminateNow`.
 const TERMINATE_NOW: usize = 1;
 
 extern "C" fn should_terminate(_: *mut AnyObject, _: Sel, _: *mut AnyObject) -> usize {
+    if !super::guard_allows() {
+        return TERMINATE_CANCEL;
+    }
     // Windows::exiting carries out the quit's effects.
     let _ = super::send(super::Event::Start { ending: false, after: super::After::Exit });
     TERMINATE_NOW

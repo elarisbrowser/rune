@@ -21,6 +21,26 @@ pub(crate) mod relaunch;
 #[cfg(target_os = "windows")]
 mod win32;
 
+thread_local! {
+    /// Asked before a quit that starts outside the app's own code (`set_guard`).
+    static GUARD: std::cell::RefCell<Option<Box<dyn Fn() -> bool>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Asks `f` before a quit the user or system starts outside the app's own code: macOS ⌘Q,
+/// the Dock's Quit, logout, restart and shutdown. Return true to let it go ahead; false keeps
+/// the app running, as if it was never asked, and the app quits later with [`crate::Tx::quit`]
+/// or [`crate::AppHandle::quit`], which don't ask. Runs on the main thread, outside any
+/// window's turn, so reach window state through an `AppHandle`. Call on the main thread;
+/// replaces an earlier guard. macOS only; elsewhere it is never asked.
+pub fn set_guard(f: impl Fn() -> bool + 'static) {
+    GUARD.with(|guard| *guard.borrow_mut() = Some(Box::new(f)));
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn guard_allows() -> bool {
+    GUARD.with(|guard| guard.borrow().as_ref().is_none_or(|f| f()))
+}
+
 /// Where the app's quit is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum State {
@@ -275,4 +295,18 @@ pub(crate) struct Handling(Loop);
 
 impl Drop for Handling {
     fn drop(&mut self) { LOOP.set(self.0); }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+
+    #[test]
+    fn the_guard_decides_a_quit_and_its_absence_allows_one() {
+        assert!(guard_allows());
+        set_guard(|| false);
+        assert!(!guard_allows());
+        set_guard(|| true);
+        assert!(guard_allows());
+    }
 }

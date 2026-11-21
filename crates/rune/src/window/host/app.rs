@@ -37,6 +37,8 @@ pub(in crate::window) trait WindowApp {
     fn enter_turn(&mut self) -> bool;
     fn leave_turn(&mut self);
     fn run_on_close(&mut self);
+    /// Asks `App::on_close_request` whether a close the user asked for may go ahead.
+    fn allow_close_request(&mut self) -> bool;
     fn run_on_quit(&mut self) -> bool;
     fn run_on_rest(&mut self);
     fn queue_on_reopen(&mut self, has_visible_windows: bool) -> Option<Arc<AtomicBool>>;
@@ -178,6 +180,7 @@ pub(super) struct TypedWindowApp<S: 'static> {
     pub(super) comp: Option<Box<dyn Compositor<S>>>,
     pub(super) on_frame_drawn: Option<OnFrameDrawn<S>>,
     pub(super) on_close: Option<fn(&mut S, &mut Tx)>,
+    pub(super) on_close_request: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(super) on_rest: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(super) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(super) on_reopen: Option<fn(&mut S, bool, &mut Tx) -> bool>,
@@ -210,6 +213,13 @@ impl<S: 'static> WindowApp for TypedWindowApp<S> {
         if let Some(f) = self.on_close {
             self.rt.update(f);
         }
+    }
+
+    fn allow_close_request(&mut self) -> bool {
+        let Some(f) = self.on_close_request else { return true };
+        let mut allow = true;
+        self.rt.update(|state, tx| allow = f(state, tx));
+        allow
     }
 
     fn run_on_quit(&mut self) -> bool {

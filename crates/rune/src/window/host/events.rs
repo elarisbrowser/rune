@@ -256,6 +256,12 @@ impl Host {
                 if self.life.finished() || self.win.is_none() { return; }
             }
             WindowEvent::CloseRequested => {
+                if !self.app.allow_close_request() {
+                    // The app keeps the window; a later close of its own ends the app as usual.
+                    self.ends_app = false;
+                    self.shell(event_loop);
+                    return;
+                }
                 self.close(event_loop);
                 return;
             }

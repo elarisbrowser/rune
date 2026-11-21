@@ -64,6 +64,7 @@ pub struct App<S: 'static> {
     pub(crate) standard_menus: bool,
     pub(crate) keep_running: bool,
     pub(crate) on_close: Option<fn(&mut S, &mut Tx)>,
+    pub(crate) on_close_request: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(crate) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(crate) turn_scope: Option<TurnScope<S>>,
     pub(crate) on_rest: Option<fn(&mut S, &mut Tx) -> bool>,
@@ -119,6 +120,7 @@ impl<S: 'static> App<S> {
             standard_menus: false,
             keep_running: false,
             on_close: None,
+            on_close_request: None,
             on_quit: None,
             turn_scope: None,
             on_rest: None,
@@ -428,6 +430,16 @@ impl<S: 'static> App<S> {
     /// Its `Tx::quit` quits.
     pub fn on_close(mut self, f: fn(&mut S, &mut Tx)) -> Self {
         self.on_close = Some(f);
+        self
+    }
+
+    /// Runs when the user asks to close the window (its close button, the system's Close
+    /// command or shortcut), before anything closes. Return true to close now; false keeps the
+    /// window open, and the app closes it later with `Tx::close_window` or `AppHandle::close`,
+    /// which don't ask again. Closes the app makes itself and app quits never run it. Native
+    /// windows only.
+    pub fn on_close_request(mut self, f: fn(&mut S, &mut Tx) -> bool) -> Self {
+        self.on_close_request = Some(f);
         self
     }
 

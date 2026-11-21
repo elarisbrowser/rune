@@ -150,6 +150,7 @@ fn forwarded_window_spec_builders_and_map_app_configure_the_inner_app() {
         .on_rest(|_, _| false)
         .on_ime(|_, _, _| false)
         .on_close(|_, _| {})
+        .on_close_request(|_, _| false)
         .on_quit(|_, _| {})
         .turn_scope(|_| {}, |_| {})
         .on_reopen(|_, _, _| false)
@@ -171,6 +172,7 @@ fn forwarded_window_spec_builders_and_map_app_configure_the_inner_app() {
     assert!(window.app.open_as.maximizes() && window.app.open_as.full_screens());
     assert!(window.app.release_gpu && window.app.keep_running);
     assert!(window.app.on_rest.is_some() && window.app.on_close.is_some() && window.app.on_quit.is_some());
+    assert!(window.app.on_close_request.is_some());
     assert!(window.app.turn_scope.is_some() && window.app.on_reopen.is_some() && window.app.on_open_url.is_some());
     assert!(window.app.on_window.is_some() && window.app.on_ready.is_some());
     assert!(window.app.on_frame_encoded.is_some() && window.app.on_frame_drawn.is_some());
