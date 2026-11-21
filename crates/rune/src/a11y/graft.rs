@@ -83,6 +83,14 @@ impl RuntimeCore {
         true
     }
 
+    /// Node `i` is a graft node whose tree the adapter doesn't hold yet. AccessKit refuses focus
+    /// on such a node; its tree goes out after the root's update, then `a11y_graft_updates`
+    /// moves the focus in.
+    pub(super) fn a11y_graft_waiting(&self, i: usize) -> bool {
+        self.tree.nodes[i].a11y.more.as_deref().and_then(|m| m.graft)
+            .is_some_and(|graft| !self.host.a11y().is_some_and(|t| t.grafted.contains(&graft)))
+    }
+
     /// The foreign tree updates to send after this turn's own: a tree whose graft node is new
     /// to the adapter goes whole, the rest as pushed. Trees whose graft nodes aren't sent wait.
     pub(crate) fn a11y_graft_updates(&mut self) -> Vec<TreeUpdate> {
@@ -98,9 +106,16 @@ impl RuntimeCore {
             }
         }
         out.extend(pending.into_iter().filter(|u| present.contains(&u.tree_id) && !whole.contains(&u.tree_id)));
-        if let Some(tree) = self.host.a11y_mut() {
-            tree.grafted.retain(|id| present.contains(id));
-            tree.grafted.extend(whole);
+        let Some(tree) = self.host.a11y_mut() else { return out };
+        tree.grafted.retain(|id| present.contains(id));
+        let arrived = !whole.is_empty();
+        tree.grafted.extend(whole);
+        // A focused graft node held the focus back until its tree was out: hand it over now.
+        if arrived {
+            let focus = self.a11y_focus_now();
+            if focus != super::tree::ROOT {
+                out.push(TreeUpdate { nodes: Vec::new(), tree: None, tree_id: TreeId::ROOT, focus });
+            }
         }
         out
     }

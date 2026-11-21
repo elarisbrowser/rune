@@ -376,9 +376,10 @@ impl RuntimeCore {
     }
 
     /// The node holding keyboard focus, when it is in the sent tree.
-    fn a11y_focus_now(&self) -> AkId {
+    pub(super) fn a11y_focus_now(&self) -> AkId {
         let Some(i) = self.focused_index() else { return ROOT };
         let n = &self.tree.nodes[i];
+        if self.a11y_graft_waiting(i) { return ROOT; }
         let id = self.link_focus().filter(|&k| n.text.as_ref().is_some_and(|t| k < t.cold.links.len()))
             .map_or(element_id(n.id), |k| link_id(n.id, k));
         let sent = self.host.a11y().is_some_and(|t| t.sent.contains_key(&id.0));
@@ -525,7 +526,7 @@ impl RuntimeCore {
                 if self.a11y_uses_long_field(i) { long_fields.push((i, w, self.a11y_lines_box_print(i, &w))); }
                 if let Some((_, size)) = n.a11y.more.as_ref().and_then(|m| m.set) { slots[w.slot].set_size = Some(size); }
                 kids.push((w.slot, id));
-                if focused == Some(i) {
+                if focused == Some(i) && !self.a11y_graft_waiting(i) {
                     focus = self.link_focus().filter(|&k| n.text.as_ref().is_some_and(|t| k < t.cold.links.len()))
                         .map_or(id, |k| link_id(n.id, k));
                 }

@@ -1,0 +1,1 @@
+- A focused element that grafts an accessibility tree no longer panics AccessKit's consumer ("Focus is on graft node ... but subtree ... does not exist"): focus stays on the window until the tree is sent, then moves in with a focus-only update.

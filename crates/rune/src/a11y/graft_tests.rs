@@ -66,3 +66,32 @@ fn a_grafted_tree_follows_its_graft_node_and_replays_whole_to_a_new_client() {
     let (_, button) = sent[0].nodes.iter().find(|(id, _)| *id == NodeId(2)).expect("button");
     assert!(sent[0].tree.is_some() && button.label() == Some("Stop"), "a new client gets the latest whole tree");
 }
+
+fn focused_view(_: &Doc, _: &mut Cx<Doc>) -> El {
+    col().child(
+        crate::el().key("doc").role("document").label("Page").size(200.0, 100.0)
+            .focusable(true).accessibility_graft(DOC),
+    )
+}
+
+/// AccessKit panics on focus held by a graft node whose tree it doesn't have yet.
+#[test]
+fn a_focused_graft_takes_focus_only_once_its_tree_is_sent() {
+    let mut rt = Runtime::new(Doc { grafted: true }, focused_view, (300.0, 200.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    rt.update(|_, tx| tx.update_accessibility_subtree(tree("Go", true)));
+    rt.frame(0.0);
+    assert!(rt.accessibility_action("doc", accesskit::Action::Focus, None));
+    rt.frame(0.0);
+    let mut link = crate::AccessibilityLink::new();
+    link.activate();
+    let root = link.service(&mut rt, "Doc").expect("activated");
+    let (graft_id, _) = root.nodes.iter().find(|(_, n)| n.author_id() == Some("doc")).expect("graft node");
+    assert_ne!(root.focus, *graft_id, "focus waits for the tree");
+    let sent = rt.core_mut().a11y_graft_updates();
+    assert_eq!(sent.len(), 2, "the tree, then the focus moving into it");
+    assert_eq!((sent[0].tree_id, sent[1].tree_id), (DOC, TreeId::ROOT));
+    assert_eq!(sent[1].focus, *graft_id);
+    rt.frame(0.0);
+    assert_eq!(link.service(&mut rt, "Doc").map_or(*graft_id, |u| u.focus), *graft_id, "and keeps it");
+}
