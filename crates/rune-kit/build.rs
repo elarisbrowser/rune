@@ -83,7 +83,7 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_MATH").is_none() {
         return;
     }
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+    let manifest_dir = env!("CARGO_MANIFEST_DIR").to_owned();
     let root = Path::new(&manifest_dir);
     let hash_path = root.join("src/math/wasm_hash.rs");
     let wasm_path = root.join("assets/math/ratex-math.wasm.deflate");
