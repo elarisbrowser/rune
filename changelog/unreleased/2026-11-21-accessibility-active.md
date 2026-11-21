@@ -1,0 +1,1 @@
+- `App::on_accessibility_active` (and `WindowSpec::on_accessibility_active`) runs as an assistive client starts or stops reading the window's tree, so an app builds costly accessibility data only while it is read.

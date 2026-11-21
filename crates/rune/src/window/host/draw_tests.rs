@@ -86,6 +86,7 @@ impl MockWindowFrame {
             on_close: None,
             on_close_request: None,
             on_accessibility_action: None,
+            on_accessibility_active: None,
             on_rest: None,
             on_quit: None,
             on_reopen: None,

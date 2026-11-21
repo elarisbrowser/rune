@@ -186,7 +186,10 @@ impl Host {
     fn a11y_receive(&mut self) {
         let Some(w) = self.win.as_mut() else { return };
         let Some(adapter) = w.a11y.as_mut() else { return };
+        let was_active = self.app.rt().host.a11y().is_some();
         if adapter.receive_core(self.app.rt_mut(), self.geometry.title) { w.request_redraw(); }
+        let active = self.app.rt().host.a11y().is_some();
+        if active != was_active { self.app.run_accessibility_active(active); }
         self.app.run_accessibility_actions();
     }
 

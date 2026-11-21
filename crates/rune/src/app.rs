@@ -66,6 +66,7 @@ pub struct App<S: 'static> {
     pub(crate) on_close: Option<fn(&mut S, &mut Tx)>,
     pub(crate) on_close_request: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(crate) on_accessibility_action: Option<fn(&mut S, accesskit::ActionRequest, &mut Tx)>,
+    pub(crate) on_accessibility_active: Option<fn(&mut S, bool, &mut Tx)>,
     pub(crate) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(crate) turn_scope: Option<TurnScope<S>>,
     pub(crate) on_rest: Option<fn(&mut S, &mut Tx) -> bool>,
@@ -123,6 +124,7 @@ impl<S: 'static> App<S> {
             on_close: None,
             on_close_request: None,
             on_accessibility_action: None,
+            on_accessibility_active: None,
             on_quit: None,
             turn_scope: None,
             on_rest: None,
@@ -451,6 +453,15 @@ impl<S: 'static> App<S> {
     /// Rune's own elements go to their handlers instead. Native windows only.
     pub fn on_accessibility_action(mut self, f: fn(&mut S, accesskit::ActionRequest, &mut Tx)) -> Self {
         self.on_accessibility_action = Some(f);
+        self
+    }
+
+    /// Runs with `true` when an assistive client (a screen reader, Voice Control, an automation
+    /// tool) starts reading the window's accessibility tree, and `false` when it stops, so an
+    /// app builds costly accessibility data, such as a grafted tree, only while it is read.
+    /// Native windows only.
+    pub fn on_accessibility_active(mut self, f: fn(&mut S, bool, &mut Tx)) -> Self {
+        self.on_accessibility_active = Some(f);
         self
     }
 

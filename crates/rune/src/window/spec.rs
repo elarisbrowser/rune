@@ -307,6 +307,8 @@ impl<S: 'static> WindowSpec<S> {
         on_close_request(f: fn(&mut S, &mut crate::Tx) -> bool);
         /// Runs actions on grafted trees' nodes, like `App::on_accessibility_action`.
         on_accessibility_action(f: fn(&mut S, accesskit::ActionRequest, &mut crate::Tx));
+        /// Runs as an assistive client starts or stops reading, like `App::on_accessibility_active`.
+        on_accessibility_active(f: fn(&mut S, bool, &mut crate::Tx));
         /// Runs in this window when the app starts to quit, like `App::on_quit`.
         on_quit(f: fn(&mut S, &mut crate::Tx));
         /// Runs `enter` before and `leave` after each event-handling turn of this window, like `App::turn_scope`.
