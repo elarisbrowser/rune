@@ -533,6 +533,8 @@ impl RuntimeCore {
                 slots.push(Slot { id, element: Some(i), walk: w, role, print, set_size: None });
                 w.slot = slots.len() - 1;
             }
+            // A graft node's content is its foreign tree, so the elements under it stay out.
+            w.gone |= self.a11y_graft_tree(i).is_some();
             walk[i] = w;
         }
         // The root: its title, size, scale and the tooltip showing.

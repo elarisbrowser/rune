@@ -71,10 +71,15 @@ impl Grafts {
 }
 
 impl RuntimeCore {
+    /// The foreign tree node `i` hosts, when it is a graft node.
+    pub(super) fn a11y_graft_tree(&self, i: usize) -> Option<TreeId> {
+        self.tree.nodes[i].a11y.more.as_deref().and_then(|m| m.graft)
+    }
+
     /// Makes node `i` the graft node of its foreign tree, when it hosts one: its tree is its
     /// content, placed from its top-left corner. Returns whether it did.
     pub(super) fn a11y_graft_node(&self, i: usize, node: &mut AkNode) -> bool {
-        let Some(tree) = self.tree.nodes[i].a11y.more.as_deref().and_then(|m| m.graft) else { return false };
+        let Some(tree) = self.a11y_graft_tree(i) else { return false };
         let r = node.bounds().unwrap_or_else(|| rect(self.paint.drawn[i], [0.0; 2]));
         node.set_tree_id(tree);
         node.set_children(Vec::<AkId>::new());

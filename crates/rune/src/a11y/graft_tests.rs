@@ -95,3 +95,38 @@ fn a_focused_graft_takes_focus_only_once_its_tree_is_sent() {
     rt.frame(0.0);
     assert_eq!(link.service(&mut rt, "Doc").map_or(*graft_id, |u| u.focus), *graft_id, "and keeps it");
 }
+
+struct Overlay {
+    shown: bool,
+}
+
+/// A grafted page with a Rune child of its own, such as an IME caret or a hover overlay.
+fn overlay_view(s: &Overlay, _: &mut Cx<Overlay>) -> El {
+    let mut doc = crate::el().key("doc").role("document").label("Page").size(200.0, 100.0).accessibility_graft(DOC);
+    if s.shown {
+        doc = doc.child(crate::el().key("caret").role("button").label("Caret").size(4.0, 10.0));
+    }
+    col().padding(20.0).child(doc)
+}
+
+fn labels(update: Option<TreeUpdate>) -> Vec<String> {
+    update.map(|u| u.nodes).unwrap_or_default().iter().filter_map(|(_, n)| n.label().map(str::to_owned)).collect()
+}
+
+/// A graft node lists none of its own children, so a child Rune sends separately would be left
+/// unreachable from the root, which AccessKit rejects. The child stays out of the tree.
+#[test]
+fn a_child_of_a_graft_node_stays_out_of_the_tree() {
+    let mut rt = Runtime::new(Overlay { shown: true }, overlay_view, (300.0, 200.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    let mut link = crate::AccessibilityLink::new();
+    link.activate();
+    assert!(!labels(link.service(&mut rt, "Overlay")).iter().any(|l| l == "Caret"), "present at launch");
+
+    rt.update(|s, _| s.shown = false);
+    rt.frame(0.0);
+    link.service(&mut rt, "Overlay");
+    rt.update(|s, _| s.shown = true);
+    rt.frame(0.0);
+    assert!(!labels(link.service(&mut rt, "Overlay")).iter().any(|l| l == "Caret"), "added later");
+}
