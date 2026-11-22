@@ -46,7 +46,9 @@ impl Presented {
 
     pub(crate) fn settle_core(this: &mut Option<Self>, rt: &RuntimeCore, config: &wgpu::SurfaceConfiguration,
         moving: bool, next_tick: Option<crate::time::Instant>, rests: bool, composed: bool) -> bool {
-        let idle = !(moving || rt.stale() || rt.live_pending() || rt.host.window_frame.is_some()
+        // A viewport that moved this frame (a trackpad's deltas, its momentum) isn't idle: idling
+        // stops the display link, and each delta's frame would wait for it to start again.
+        let idle = !(moving || rt.scrolling() || rt.stale() || rt.live_pending() || rt.host.window_frame.is_some()
             || super::pacing::timer_wants_frame_core(rt, next_tick));
         if idle && rests { Self::record_core(this, rt, config, composed) } else { *this = None }
         idle
