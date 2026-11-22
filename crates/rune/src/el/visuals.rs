@@ -354,6 +354,13 @@ impl El {
         }
         self
     }
+    /// Draw with the press scale of the element keyed `key` instead of its own, so a highlight
+    /// behind a pressed control shrinks with it. The key is looked up in the tree when painting;
+    /// a key that names no element leaves this one at rest.
+    pub fn press_scale_of(mut self, key: &str) -> Self {
+        self.handlers.press_scale_of = Some(key.to_owned());
+        self
+    }
     /// Draw this element and everything in it `k` times its size about its centre, like
     /// SwiftUI's `scaleEffect`: fills, borders, text, icons and images all scale, and text
     /// rasterizes at the scaled size once it rests. Layout keeps the unscaled size, so siblings

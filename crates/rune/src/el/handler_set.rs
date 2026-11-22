@@ -55,6 +55,8 @@ pub(crate) struct Handlers {
     pub on_selection_change: Option<SelectionChangeFn>,
     pub cursor: Option<Cursor>,
     pub press_scale: Option<f32>,
+    /// `El::press_scale_of`: the key of the element whose press scale this one draws with.
+    pub press_scale_of: Option<String>,
     /// Debug builds: where the app set the handlers the commit warnings name.
     #[cfg(debug_assertions)]
     pub sites: HandlerSites,
@@ -139,6 +141,7 @@ impl Empty for Handlers {
         on_selection_change: None,
         cursor: None,
         press_scale: None,
+        press_scale_of: None,
         #[cfg(debug_assertions)]
         sites: HandlerSites { hover: None, hover_change: None, pointer_move: None, layout: None, drawn_layout: None, visible_rows: None },
     };

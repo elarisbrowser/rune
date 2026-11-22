@@ -5,6 +5,13 @@ mod layers;
 mod pose;
 mod primitives;
 
+/// The node whose press scale `n` draws with, from `El::press_scale_of`. A linear scan: only
+/// the few highlights that mirror a press pay it, once per frame.
+pub(super) fn press_scale_source(nodes: &[Node], n: &Node) -> Option<NodeId> {
+    let key = n.handlers.get()?.press_scale_of.as_deref()?;
+    nodes.iter().find(|m| m.key.as_deref() == Some(key)).map(|m| m.id)
+}
+
 impl RuntimeCore {
     pub(in crate::runtime) fn build(&mut self) -> bool {
         let (_paint_time, _blend) = (crate::frame::profile::Scope::new(crate::frame::profile::Phase::Paint), crate::theme::scope(self.paint.srgb_blend));
@@ -199,7 +206,9 @@ impl RuntimeCore {
             let mut fade_origin = pinh.paint_fade_origin;
             let mut rounded = pinh.rounded;
             let has_press_scale = n.handlers.get().is_some_and(|h| h.press_scale.is_some());
-            let press_k = if has_press_scale { self.scene.get(n.id, P_PRESS_SCALE).unwrap_or(1.0) } else { 1.0 };
+            let press_src = press_scale_source(&self.tree.nodes, n);
+            let press_id = press_src.unwrap_or(n.id);
+            let press_k = if has_press_scale || press_src.is_some() { self.scene.get(press_id, P_PRESS_SCALE).unwrap_or(1.0) } else { 1.0 };
             let sequence = track
                 .filter(|_| matches!(n.looping.as_ref().map(|l| l.kind), Some(rune_motion::LoopKind::Sequence(_))));
             let static_k = if n.scale_track { self.scene.get(n.id, P_SCALE).unwrap_or(n.static_scale) } else { n.static_scale };
@@ -214,7 +223,7 @@ impl RuntimeCore {
             } else { false };
             let store = self.scene.store();
             let scale_animating = store.is_animating(n.id, prop::SCALE) || store.is_animating(n.id, prop::PRESENCE)
-                || (has_press_scale && store.is_animating(n.id, P_PRESS_SCALE))
+                || ((has_press_scale || press_src.is_some()) && store.is_animating(press_id, P_PRESS_SCALE))
                 || (n.scale_track && store.is_animating(n.id, P_SCALE))
                 || sequence.is_some_and(|l| !self.reduced_motion && l.active(lnow));
             let scale_motion = pinh.scale_motion.max(

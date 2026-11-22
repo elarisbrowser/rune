@@ -24,6 +24,7 @@ mod picture_scale;
 mod pointer_drag;
 mod pointer_hit;
 mod press_moving;
+mod press_scale_of;
 mod relayout;
 mod remount;
 mod reveal_chain;

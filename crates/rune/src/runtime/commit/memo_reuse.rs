@@ -340,6 +340,7 @@ fn same_handlers(
         on_selection_change,
         cursor,
         press_scale,
+        press_scale_of,
         #[cfg(debug_assertions)]
         sites: _,
     } = &**b;
@@ -395,6 +396,7 @@ fn same_handlers(
         && opt_rc_eq(&a.on_selection_change, on_selection_change)
         && a.cursor == *cursor
         && a.press_scale == *press_scale
+        && a.press_scale_of == *press_scale_of
 }
 
 /// Exhaustively checks that `el` has not been mutated by builders after `Built::placeholder`
