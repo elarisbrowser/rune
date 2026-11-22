@@ -244,7 +244,14 @@ pub(super) fn prepare_window_render(
                 renderer.set_punched_surfaces(layers.punched);
                 layers_again = layers.again;
             }
-            #[cfg(not(target_os = "windows"))]
+            // Surfaces shown by a layer of the app's under the UI (`NativeSurface::set_layer`).
+            #[cfg(target_os = "macos")]
+            {
+                let keys: Vec<usize> = rt.surfaces.iter().filter(|d| d.surface.has_layer()).map(|d| d.surface.key()).collect();
+                let ready = !keys.is_empty() && renderer.surface_punch_ready();
+                renderer.set_punched_surfaces(if ready { keys } else { Vec::new() });
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
             let _ = (renderer, rt);
         });
         #[cfg(target_os = "windows")]
@@ -364,7 +371,7 @@ pub(super) fn submit_and_present_window(
     #[cfg(target_os = "macos")]
     {
         let rt = host.app.rt();
-        l.native.materials.present(rt.paint.materials(), rt.env.scale, || gpu.queue.present(prepared.frame));
+        l.native.materials.present(rt.paint.materials(), &rt.surfaces, rt.env.scale, || gpu.queue.present(prepared.frame));
     }
     #[cfg(target_os = "windows")]
     if let (Some(rects), Some(surface)) = (&prepared.present_rect, l.surface.as_ref())

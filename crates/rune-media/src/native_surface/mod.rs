@@ -148,6 +148,9 @@ struct State {
     mirrored: bool,
     /// The player feeding this surface, pulled once per frame that draws it.
     video: Option<Arc<crate::video::Shared>>,
+    /// macOS: a layer of the app's that shows this surface's content itself, under the UI.
+    #[cfg(target_os = "macos")]
+    layer: Option<macos::Layer>,
 }
 /// Clones share a single bounded slot; pushing never queues frames behind the decoder.
 #[derive(Clone, Default)]
@@ -184,6 +187,20 @@ impl NativeSurface {
     pub fn pull_video(&self, clock: crate::video::Clock, wake: &Arc<rune_core::live::Wake>) -> Option<crate::video::Pulled> {
         let video = self.video()?;
         Some(video.pull(self, clock, wake))
+    }
+    /// The layer showing this surface's content (`set_layer`).
+    #[cfg(target_os = "macos")]
+    #[doc(hidden)]
+    pub fn layer(&self) -> Option<objc2::rc::Retained<objc2::runtime::AnyObject>> {
+        self.0.lock().unwrap().layer.as_ref().map(macos::Layer::get)
+    }
+    /// Whether a layer of the app's shows this surface's content (macOS `set_layer`).
+    #[doc(hidden)]
+    pub fn has_layer(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        return self.0.lock().unwrap().layer.is_some();
+        #[cfg(not(target_os = "macos"))]
+        false
     }
     pub fn set_waker(&self, waker: rune_core::Waker) {
         // The replaced waker's captures drop after the lock: one may read this surface's counts

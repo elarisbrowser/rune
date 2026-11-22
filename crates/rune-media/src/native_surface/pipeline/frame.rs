@@ -84,6 +84,9 @@ impl SurfaceRenderer {
             let f = &imported.frame;
             let upright = f.orient.upright(f.size);
             let image = super::super::place::image_rect(d.rect, upright, d.fit, d.surface.place());
+            // A surface shown by its own layer covers its whole place, all of which is punched.
+            let layered = d.surface.has_layer();
+            let image = if layered { d.rect } else { image };
             let exact = (image[2] - upright[0] as f32).abs() < 0.001
                 && (image[3] - upright[1] as f32).abs() < 0.001
                 && (image[0] - image[0].round()).abs() < 0.001
@@ -146,6 +149,7 @@ impl SurfaceRenderer {
                     binds: Vec::new(),
                     punch: false,
                     isolated: std::sync::atomic::AtomicBool::new(false),
+                    layered: false,
                 };
                 if count < self.draws.len() {
                     self.draws[count] = p;
@@ -155,6 +159,7 @@ impl SurfaceRenderer {
             }
             let p = &mut self.draws[count];
             p.punch = self.punch.is_some() && self.punched.contains(&key);
+            p.layered = layered;
             *p.isolated.get_mut() = false;
             count += 1;
         }
@@ -304,6 +309,9 @@ impl SurfaceRenderer {
     #[doc(hidden)]
     pub fn draw_blended(&self, pass: &mut wgpu::RenderPass<'_>, index: usize, format: wgpu::TextureFormat, blend: Blend) {
         self.draws[index].drawn.store(true, std::sync::atomic::Ordering::Relaxed);
+        if self.draws[index].layered {
+            return;
+        }
         pass.set_pipeline(if blend == Blend::PlusLighter {
             let (f, pipeline) = self.additive.as_ref().expect("prepared dissolve surface");
             assert_eq!(*f, format);

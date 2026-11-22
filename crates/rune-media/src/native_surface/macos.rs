@@ -328,3 +328,51 @@ fn check(status: i32, operation: &str) -> Result<(), String> {
 fn cf_equal(value: &CFType, string: &CFString) -> bool {
     value == AsRef::<CFType>::as_ref(string)
 }
+
+/// A `CALayer` showing a surface's content (`NativeSurface::set_layer`). Retained here; only
+/// the window's main thread reads it.
+pub(super) struct Layer(objc2::rc::Retained<objc2::runtime::AnyObject>);
+
+// SAFETY: the layer is only messaged on the main thread (`NativeSurface::layer` is read by the
+// window that draws it); other threads only move or drop the retain, which is thread-safe.
+unsafe impl Send for Layer {}
+// SAFETY: as for Send: shared references only clone the retain.
+unsafe impl Sync for Layer {}
+
+impl Layer {
+    /// # Safety
+    /// `layer` is a valid Objective-C object.
+    pub(super) unsafe fn retain(layer: NonNull<std::ffi::c_void>) -> Option<Self> {
+        // SAFETY: the caller passes a valid object; this adds a reference of ours.
+        unsafe { objc2::rc::Retained::retain(layer.as_ptr().cast::<objc2::runtime::AnyObject>()) }.map(Layer)
+    }
+
+    pub(super) fn get(&self) -> objc2::rc::Retained<objc2::runtime::AnyObject> {
+        self.0.clone()
+    }
+}
+
+impl NativeSurface {
+    /// Shows this surface's content with `layer`, a `CALayer` of the app's, instead of its
+    /// pushed frames: wherever the surface draws, the window puts the layer underneath its UI
+    /// at the surface's place and leaves that place transparent, so the window server shows the
+    /// layer's content as it changes, with no frame of the window's. Elements drawn over the
+    /// surface stay over it. `None` goes back to drawing pushed frames.
+    ///
+    /// # Safety
+    /// `layer` must be a valid `CALayer`; the surface retains it, and uses it on the main thread only.
+    #[cfg(target_os = "macos")]
+    pub unsafe fn set_layer(&self, layer: Option<std::ptr::NonNull<std::ffi::c_void>>) {
+        // SAFETY: the caller passes a valid CALayer.
+        let layer = layer.and_then(|layer| unsafe { Layer::retain(layer) });
+        let shown = layer.is_some();
+        let old = std::mem::replace(&mut self.0.lock().unwrap().layer, layer);
+        drop(old);
+        if shown {
+            // The surface draws one opaque texel over its whole place, which the window punches
+            // out: the layer shows the content, so no frame of the app's is needed.
+            let opaque = ByteFrame { width: 1, height: 1, format: Format::Bgra, color: ColorInfo::default(), planes: [vec![0, 0, 0, 255], Vec::new()] };
+            self.push_bytes(opaque, 0).expect("a 1x1 BGRA frame is valid");
+        }
+    }
+}

@@ -81,6 +81,8 @@ pub(crate) struct PresentFlag {
     moving: bool,
     materials: bool,
     live: bool,
+    /// App layers under the UI (`NativeSurface::set_layer`) move with the drawable.
+    layers: bool,
     written: bool,
 }
 
@@ -109,8 +111,14 @@ impl PresentFlag {
         self.write()
     }
 
+    /// App layers under the UI appeared or all went. The value to write, when it changed.
+    pub(crate) fn layers(&mut self, on: bool) -> Option<bool> {
+        self.layers = on;
+        self.write()
+    }
+
     fn write(&mut self) -> Option<bool> {
-        let on = self.moving || self.materials || self.live;
+        let on = self.moving || self.materials || self.live || self.layers;
         (on != self.written).then(|| { self.written = on; on })
     }
 }

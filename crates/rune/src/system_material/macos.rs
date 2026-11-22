@@ -68,11 +68,15 @@ pub(crate) struct Materials {
     flag: Rc<Cell<PresentFlag>>,
     live_end: Option<Retained<AnyObject>>,
     slots: Vec<Slot>,
+    /// Surfaces' own layers (`NativeSurface::set_layer`) are on: the frame presents with them.
+    layers_on: bool,
+    /// The surface layers in the host, by surface key, and the place each was given.
+    layers: Vec<(usize, Retained<AnyObject>, [f64; 5])>,
 }
 
 impl Materials {
     pub(crate) fn new() -> Self {
-        Materials { mode: Mode::from_env(), active: false, view: None, host: None, metal: None, flag: Rc::default(), live_end: None, slots: Vec::new() }
+        Materials { mode: Mode::from_env(), active: false, view: None, host: None, metal: None, flag: Rc::default(), live_end: None, slots: Vec::new(), layers_on: false, layers: Vec::new() }
     }
 
     /// Whether this frame's elements should leave their interior to native views.
@@ -81,7 +85,7 @@ impl Materials {
     /// Whether `present` would only present: no material views to move with the drawable, and
     /// the layer presents without transactions, so the present can happen on another thread.
     pub(crate) fn presents_plainly(&self) -> bool {
-        !self.active && self.slots.iter().all(|s| s.shown.is_none()) && !self.flag.get().written()
+        !self.active && self.slots.iter().all(|s| s.shown.is_none()) && self.layers.is_empty() && !self.flag.get().written()
     }
 
     fn update_flag(&self, f: impl FnOnce(&mut PresentFlag) -> Option<bool>) -> Option<bool> {
@@ -134,10 +138,40 @@ impl Materials {
         true
     }
 
-    /// Presents the frame with the material views matching `draws`: in one transaction with
-    /// the drawable when synced, or just before it otherwise.
-    pub(crate) fn present(&mut self, draws: &[MaterialDraw], scale: f32, present: impl FnOnce()) {
-        if !self.active && self.slots.iter().all(|s| s.shown.is_none()) { return present(); }
+    /// After a build: whether any drawn surface shows its content with a layer of its own
+    /// (`NativeSurface::set_layer`). The layers go in the host view under the Metal layer, which
+    /// stops being opaque so they show through the places the frame punches out, and frames
+    /// present with transactions so a layer moves with the UI around it. True when that
+    /// switched on, so the caller acquires another drawable, as for `update`.
+    pub(crate) fn update_layers(&mut self, transparent: bool, found: bool, window: &winit::window::Window, surface: &wgpu::Surface<'_>) -> bool {
+        if found == self.layers_on { return false; }
+        if !found && !transparent && let Some(metal) = self.metal.as_deref() {
+            // SAFETY: a CALayer setter on the main thread; an opaque window's layer is opaque again.
+            unsafe { let _: () = msg_send![metal, setOpaque: true]; }
+        }
+        if found {
+            if self.view.is_none() {
+                let Some(view) = crate::platform::macos::content_view(window) else { return false };
+                // SAFETY: winit's content view outlives this retain, which only adds a reference.
+                self.view = unsafe { Retained::retain(Retained::as_ptr(&view).cast::<AnyObject>().cast_mut()) };
+            }
+            if self.metal.is_none() { self.metal = metal_layer(surface); }
+            let Some(metal) = self.metal.as_deref() else { return false };
+            // SAFETY: a CALayer setter on the main thread.
+            unsafe { let _: () = msg_send![metal, setOpaque: false]; }
+        }
+        self.layers_on = found;
+        match self.update_flag(|f| f.layers(found)) {
+            Some(on) => { crate::platform::macos::present_with_transaction(surface, on); on }
+            None => false,
+        }
+    }
+
+    /// Presents the frame with the material views matching `draws` and the surface layers
+    /// matching `surfaces`: in one transaction with the drawable when synced, or just before it
+    /// otherwise.
+    pub(crate) fn present(&mut self, draws: &[MaterialDraw], surfaces: &[crate::native_surface::SurfaceDraw], scale: f32, present: impl FnOnce()) {
+        if !self.active && self.slots.iter().all(|s| s.shown.is_none()) && !self.layers_on && self.layers.is_empty() { return present(); }
         let draws = if self.active { draws } else { &[] };
         let transaction = AnyClass::get(c"CATransaction");
         let synced = self.mode != Mode::Unsynced && transaction.is_some();
@@ -146,6 +180,7 @@ impl Materials {
             unsafe { let _: () = msg_send![t, begin]; let _: () = msg_send![t, setDisableActions: true]; }
         }
         self.sync(draws, scale);
+        self.sync_layers(if self.layers_on { surfaces } else { &[] }, scale);
         if !synced && let Some(t) = transaction {
             // SAFETY: closes the transaction opened above.
             unsafe { let _: () = msg_send![t, commit]; }
@@ -221,6 +256,55 @@ impl Materials {
                 unsafe { let _: () = msg_send![&*self.slots.remove(k).view, removeFromSuperview]; }
             }
         }
+    }
+
+    /// Puts each drawn surface's layer at its place, in points, rounded as the punch is, and
+    /// takes out the layers of surfaces no longer drawn.
+    fn sync_layers(&mut self, surfaces: &[crate::native_surface::SurfaceDraw], scale: f32) {
+        if surfaces.is_empty() && self.layers.is_empty() { return; }
+        let Some(host) = self.host() else { return };
+        // SAFETY: an NSView getter on the main thread.
+        let host_layer: *mut AnyObject = unsafe { msg_send![&*host, layer] };
+        // SAFETY: AppKit keeps the host view's layer alive while the view is.
+        let Some(host_layer) = (unsafe { host_layer.as_ref() }) else { return };
+        let scale = f64::from(scale.max(f32::EPSILON));
+        let mut kept = Vec::with_capacity(surfaces.len());
+        for d in surfaces {
+            let Some(layer) = d.surface.layer() else { continue };
+            let key = d.surface.key();
+            if kept.contains(&key) { continue; }
+            kept.push(key);
+            let radius = f64::from(super::clamp_radius(d.radii, d.rect[2], d.rect[3])) / scale;
+            let place = [f64::from(d.rect[0]) / scale, f64::from(d.rect[1]) / scale, f64::from(d.rect[2]) / scale, f64::from(d.rect[3]) / scale, radius];
+            let at = self.layers.iter().position(|(k, ..)| *k == key);
+            let changed = at.is_none_or(|i| self.layers[i].2 != place || !std::ptr::eq(Retained::as_ptr(&self.layers[i].1), Retained::as_ptr(&layer)));
+            if changed {
+                // SAFETY: CALayer calls on the main thread; the layer is the app's, retained by its surface.
+                unsafe {
+                    let parent: *mut AnyObject = msg_send![&*layer, superlayer];
+                    if !std::ptr::eq(parent, host_layer) {
+                        let _: () = msg_send![host_layer, addSublayer: &*layer];
+                    }
+                    let _: () = msg_send![&*layer, setFrame: rect(place[0], place[1], place[2], place[3])];
+                    let _: () = msg_send![&*layer, setMasksToBounds: true];
+                    let _: () = msg_send![&*layer, setCornerRadius: radius];
+                    let _: () = msg_send![&*layer, setCornerCurve: kCACornerCurveContinuous];
+                    let _: () = msg_send![&*layer, setHidden: false];
+                }
+            }
+            match at {
+                Some(i) => self.layers[i] = (key, layer, place),
+                None => self.layers.push((key, layer, place)),
+            }
+        }
+        self.layers.retain(|(key, layer, _)| {
+            let keep = kept.contains(key);
+            if !keep {
+                // SAFETY: removes a layer this struct added to the host.
+                unsafe { let _: () = msg_send![&**layer, removeFromSuperlayer]; }
+            }
+            keep
+        });
     }
 
     /// The host view, added under the Metal layer on first use and kept there.

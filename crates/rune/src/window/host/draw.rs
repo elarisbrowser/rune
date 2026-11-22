@@ -515,6 +515,13 @@ impl FrameHost for WindowFrame<'_> {
             {
                 return PostStepCheck::Reacquire(ReacquireReason::NativeMaterials);
             }
+            let rt = self.host.app.rt();
+            let (transparent, layers) = (rt.transparent, rt.surfaces.iter().any(|d| d.surface.has_layer()));
+            if let Some(l) = self.host.win.as_mut()
+                && l.surface.as_ref().is_some_and(|surface| l.native.materials.update_layers(transparent, layers, &l.window, surface))
+            {
+                return PostStepCheck::Reacquire(ReacquireReason::NativeMaterials);
+            }
         }
         if self.needs_reblend() {
             return PostStepCheck::Reacquire(ReacquireReason::Reblend);

@@ -283,7 +283,7 @@ pub(super) fn submit_and_present(live: &mut Live, renderer: &Renderer, gpu: &Gpu
             }
         }
         renderer.submit(&gpu.queue, encoder);
-        live.materials.present(rt.paint.materials(), rt.env.scale, || gpu.queue.present(frame));
+        live.materials.present(rt.paint.materials(), &[], rt.env.scale, || gpu.queue.present(frame));
     }
     #[cfg(not(target_os = "macos"))]
     {
