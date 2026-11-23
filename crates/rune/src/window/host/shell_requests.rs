@@ -17,8 +17,9 @@ impl Host {
         let Some(w) = self.win.as_mut().filter(|_| self.life.shown()) else { return minimize_ignored("a hidden window") };
         #[cfg(target_os = "macos")]
         if w.native.panel.is_some() || launcher { return minimize_ignored("a panel"); }
-        // Off macOS winit reports a minimize button on a borderless window too.
-        if self.options.borderless || !w.window.enabled_buttons().contains(winit::window::WindowButtons::MINIMIZE) {
+        // Off macOS winit reports a minimize button on a borderless window too, which can minimize.
+        let borderless_without_button = cfg!(target_os = "macos") && self.options.borderless;
+        if borderless_without_button || !w.window.enabled_buttons().contains(winit::window::WindowButtons::MINIMIZE) {
             return minimize_ignored("a window without a minimize button");
         }
         #[cfg(target_os = "macos")]

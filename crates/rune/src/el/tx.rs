@@ -402,8 +402,8 @@ impl Tx {
 
     /// Minimize this window after this handler, as its minimize button would (winit's
     /// `set_minimized` off macOS). Does nothing (logging in debug builds) where a window
-    /// can't minimize: an overlay, a panel or launcher, a borderless window, or one without a
-    /// minimize button.
+    /// can't minimize: an overlay, a panel or launcher, a borderless window on macOS, or one
+    /// without a minimize button.
     /// A close or quit asked in the same change wins.
     pub fn minimize(&mut self) {
         self.minimize_order = Some(crate::app::window_request_order());
