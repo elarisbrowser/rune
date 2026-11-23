@@ -109,6 +109,56 @@
    "dy": 0,
    "precise": true,
    "phase": "ended"
+  },
+  {
+   "t": 0.62,
+   "type": "wheel",
+   "x": 200,
+   "y": 220,
+   "dy": 9.7,
+   "precise": true,
+   "phase": "moved",
+   "momentum": true
+  },
+  {
+   "t": 0.66,
+   "type": "wheel",
+   "x": 200,
+   "y": 220,
+   "dy": 6.1,
+   "precise": true,
+   "phase": "moved",
+   "momentum": true
+  },
+  {
+   "t": 0.7,
+   "type": "wheel",
+   "x": 200,
+   "y": 220,
+   "dy": 3.9,
+   "precise": true,
+   "phase": "moved",
+   "momentum": true
+  },
+  {
+   "t": 0.74,
+   "type": "wheel",
+   "x": 200,
+   "y": 220,
+   "dy": 2.2,
+   "precise": true,
+   "phase": "moved",
+   "momentum": true
+  },
+  {
+   "t": 0.78,
+   "type": "wheel",
+   "x": 200,
+   "y": 220,
+   "dy": 1.4,
+   "precise": true,
+   "phase": "moved",
+   "momentum": true
   }
  ]
 }

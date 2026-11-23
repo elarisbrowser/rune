@@ -1,0 +1,1 @@
+- Scrolling: a trackpad pull past a scroll viewport's end now stays held through the platform's momentum, and springs back on its own once the momentum stops, instead of snapping to the edge mid-coast or waiting for unrelated input.
