@@ -650,13 +650,10 @@ impl RuntimeCore {
     /// of its own, or under a raised panel) never takes it. A wheel's ease counts from where it heads.
     pub(in crate::runtime) fn wheel_target(&self, x: f32, y: f32, dy: f32, start: crate::runtime::gesture_dispatch::WheelStart) -> Option<NodeId> {
         let at = match start { crate::runtime::gesture_dispatch::WheelStart::At(s) => s, crate::runtime::gesture_dispatch::WheelStart::Unknown => self.chain_start(x, y) };
-        let movable = self.scroll_in_chain(at, false, |st| {
+        self.scroll_in_chain(at, false, |st| {
             let cur = st.mode.wheel().map_or(st.offset, |c| c.target());
             if dy > 0.0 { cur > 0.0 } else { cur < st.max }
-        });
-        // A trackpad pulled past an end with nothing left to move takes the innermost viewport, to rubber-band it.
-        if movable.is_none() && self.scroll.wheel_phased() { return self.scroll_in_chain(at, false, |_| true); }
-        movable
+        })
     }
 
     /// Wheel or trackpad delta in points (positive `dy` moves content down, like a browser's
@@ -674,21 +671,11 @@ impl RuntimeCore {
         let now = self.now_clock();
         let Some((id, held)) = self.wheel_run(now, x, y, dy, start) else { return };
         let stick = self.tree.node_index.get(&id).and_then(|&i| self.tree.nodes[i].scroll).is_some_and(|s| s.stick_bottom);
-        // A trackpad's pull past an end stretches with resistance and springs back once it stops.
-        let phased = self.scroll.wheel_phased();
         let Some(st) = self.scroll.scrolls.get_mut(&id) else { return };
         let before = st.offset;
-        let base = match st.mode { ScrollMode::Rubber { at, .. } => at, _ => st.offset };
-        let raw = base - f64::from(dy);
-        if phased && !(0.0..=st.max).contains(&raw) {
-            let edge = raw.clamp(0.0, st.max);
-            st.offset = edge + crate::runtime::scroll::touch::resist(raw - edge);
-            st.mode = st.mode.to_rubber(0.0, raw);
-        } else {
-            st.offset = raw.clamp(0.0, st.max);
-        }
+        st.offset = (st.offset - f64::from(dy)).clamp(0.0, st.max);
         st.moved();
-        if !matches!(st.mode, ScrollMode::Rubber { .. }) { st.land(stick); }
+        st.land(stick);
         log_event!(self, "wheel {dy:.1}");
         let moved = st.offset != before;
         if moved { self.pointer.scroll_cancels_press(&self.tree.nodes, id); }

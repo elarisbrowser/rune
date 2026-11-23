@@ -1,1 +1,0 @@
-- Scrolling: a trackpad pulled past the end of a scroll viewport now stretches past it with resistance and springs back once the gesture stops, as macOS does. Mouse wheels still stop at the edge, and the pinned revision of Rune had no overscroll for trackpads.

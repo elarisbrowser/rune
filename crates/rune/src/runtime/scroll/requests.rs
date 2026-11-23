@@ -78,12 +78,6 @@ impl ScrollTables {
         self.wheel_lock.phased()
     }
 
-    /// Whether a trackpad gesture is still moving at `now` (`WheelLock::live`).
-    #[inline]
-    pub(in crate::runtime) fn wheel_live(&self, now: f64) -> bool {
-        self.wheel_lock.live(now)
-    }
-
     #[inline]
     pub(in crate::runtime) fn wheel_notched(&mut self, now: f64, notch: bool) -> bool {
         self.wheel_lock.notched(now, notch)

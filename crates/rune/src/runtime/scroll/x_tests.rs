@@ -369,36 +369,3 @@ fn shift_turns_only_a_purely_vertical_wheel() {
     assert_eq!(wheel_delta(trackpad, 2.0, true), (-4.0, 10.0), "a delta with a horizontal part stays as it is");
     assert!(SHIFT_TURNS_WHEEL != cfg!(target_os = "macos"));
 }
-
-/// A trackpad pulled past the top stretches with resistance, holds while its gesture moves, and
-/// springs back to the edge once it stops. A mouse wheel past the same edge still stops there.
-#[test]
-fn a_trackpad_pull_past_the_top_springs_back_once_the_gesture_stops() {
-    use crate::{GesturePhase, WheelEvent};
-    use crate::runtime::scroll_mode::ScrollMode;
-    fn view(_: &(), _: &mut Cx<()>) -> El {
-        crate::col().key("list").w_full().h(300.0).scroll(crate::ScrollSpec { stick_bottom: false }).child(crate::el().w_full().h(2000.0))
-    }
-    let mut rt = Runtime::new((), view, (300.0, 300.0), Env::default());
-    rt.frame(0.0);
-    rt.frame(1.0 / 60.0);
-    let list = rt.tree.nodes.iter().find(|n| n.key.as_deref() == Some("list")).unwrap().id;
-    let wheel = |rt: &mut Runtime<()>, dy: f32, phase| rt.wheel_event(WheelEvent::new(0.0, dy).at(100.0, 100.0).phase(phase));
-    wheel(&mut rt, 40.3, GesturePhase::Began);
-    wheel(&mut rt, 40.3, GesturePhase::Moved);
-    let pulled = rt.scroll.scrolls[&list].offset;
-    let expected = crate::runtime::scroll::touch::resist(-80.6);
-    assert!((pulled - expected).abs() < 0.05, "two deltas stretch as one pull of their sum, with resistance: {pulled} vs {expected}");
-    assert!(matches!(rt.scroll.scrolls[&list].mode, ScrollMode::Rubber { .. }));
-
-    rt.frame(1.0 / 60.0);
-    assert_eq!(rt.scroll.scrolls[&list].offset, pulled, "held while the gesture moves");
-
-    rt.wheel_ended();
-    for _ in 0..180 { rt.frame(1.0 / 60.0); }
-    assert_eq!(rt.scroll.scrolls[&list].offset, 0.0, "springs back to the edge");
-    assert!(matches!(rt.scroll.scrolls[&list].mode, ScrollMode::Rest(_)));
-
-    rt.wheel_xy(100.0, 100.0, 0.0, 40.0);
-    assert_eq!(rt.scroll.scrolls[&list].offset, 0.0, "a mouse wheel is clamped at the edge, not stretched");
-}

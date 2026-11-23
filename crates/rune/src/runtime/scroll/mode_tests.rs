@@ -95,7 +95,6 @@ fn production_mode(mode: ScrollMode) -> DevMode {
         ScrollMode::Momentum { v, .. } => DevMode::Momentum(v),
         ScrollMode::Glide { v, .. } => DevMode::Glide(v),
         ScrollMode::Wheel { .. } => unreachable!("no act starts a wheel's ease"),
-        ScrollMode::Rubber { .. } => unreachable!("no act starts a rubber band"),
     }
 }
 

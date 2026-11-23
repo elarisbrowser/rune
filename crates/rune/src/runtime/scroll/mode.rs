@@ -22,9 +22,6 @@ pub(in crate::runtime) enum ScrollMode {
     Glide { v: f32, to: GlideTo, hand: Hand },
     /// Easing to where a notched mouse wheel sent it (`runtime/scroll/wheel.rs`).
     Wheel { curve: WheelCurve, hand: Hand },
-    /// Pulled past an end by a trackpad, springing back once the gesture stops (`touch::rebound`).
-    /// `at` is the offset the pull reaches before resistance, and `v` the spring's speed.
-    Rubber { v: f32, at: f64, hand: Hand },
 }
 
 /// The hand latches a mode carries from frame to frame, whatever moves the offset.
@@ -77,14 +74,14 @@ impl ScrollMode {
     pub(in crate::runtime) fn hand(self) -> Hand {
         match self {
             ScrollMode::Rest(hand) | ScrollMode::Pinned(hand) => hand,
-            ScrollMode::Momentum { hand, .. } | ScrollMode::Glide { hand, .. } | ScrollMode::Wheel { hand, .. } | ScrollMode::Rubber { hand, .. } => hand,
+            ScrollMode::Momentum { hand, .. } | ScrollMode::Glide { hand, .. } | ScrollMode::Wheel { hand, .. } => hand,
         }
     }
 
     fn hand_mut(&mut self) -> &mut Hand {
         match self {
             ScrollMode::Rest(hand) | ScrollMode::Pinned(hand) => hand,
-            ScrollMode::Momentum { hand, .. } | ScrollMode::Glide { hand, .. } | ScrollMode::Wheel { hand, .. } | ScrollMode::Rubber { hand, .. } => hand,
+            ScrollMode::Momentum { hand, .. } | ScrollMode::Glide { hand, .. } | ScrollMode::Wheel { hand, .. } => hand,
         }
     }
 
@@ -119,11 +116,6 @@ impl ScrollMode {
     /// The same mode easing on a wheel's `curve`, keeping the hand's latches.
     pub(in crate::runtime) fn to_wheel(self, curve: WheelCurve) -> Self {
         ScrollMode::Wheel { curve, hand: self.hand() }
-    }
-
-    /// The same mode pulled past an end, keeping the hand's latches.
-    pub(in crate::runtime) fn to_rubber(self, v: f32, at: f64) -> Self {
-        ScrollMode::Rubber { v, at, hand: self.hand() }
     }
 
     /// The wheel's ease, while one runs.
