@@ -37,7 +37,7 @@ impl RuntimeCore {
             self.dismiss_help();
             let now = self.now_clock();
             let pending = self.wheel_pending();
-            self.scroll.wheel_delta(now, ev.dx, ev.dy, pending, ev.momentum);
+            self.scroll.wheel_delta(now, ev.dx, ev.dy, pending);
         }
         // A notch or not is the run's to decide, not each delta's.
         let ev = if moved { WheelEvent { notch: self.scroll.wheel_notched(self.now_clock(), ev.notch), ..ev } } else { ev };

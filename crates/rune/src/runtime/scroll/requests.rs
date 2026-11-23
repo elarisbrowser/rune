@@ -78,10 +78,10 @@ impl ScrollTables {
         self.wheel_lock.phased()
     }
 
-    /// When a trackpad gesture stops moving (`WheelLock::release_at`).
+    /// Whether a trackpad gesture is still moving at `now` (`WheelLock::live`).
     #[inline]
-    pub(in crate::runtime) fn wheel_release_at(&self) -> Option<f64> {
-        self.wheel_lock.release_at()
+    pub(in crate::runtime) fn wheel_live(&self, now: f64) -> bool {
+        self.wheel_lock.live(now)
     }
 
     #[inline]

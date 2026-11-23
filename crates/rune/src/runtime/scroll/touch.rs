@@ -150,13 +150,6 @@ pub(in crate::runtime) fn resist(over: f64) -> f64 {
     over * 0.55 / (1.0 + over.abs() * 0.55 / 300.0)
 }
 
-/// The pull `r` that `resist` maps to: the inverse, for a stretch that resumes after its spring
-/// back has moved the viewport.
-pub(in crate::runtime) fn unresist(r: f64) -> f64 {
-    let b = r.abs().min(299.0);
-    (b / (0.55 * (1.0 - b / 300.0))).copysign(r)
-}
-
 /// A critically damped edge return, integrated exactly for variable frame times.
 pub(in crate::runtime) fn rebound(offset: f64, velocity: f32, target: f64, dt: f32) -> (f64, f32) {
     let dt = f64::from(dt);
