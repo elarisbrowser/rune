@@ -977,7 +977,11 @@ close/recreation. On Wayland, use `activate(token)` for authorized focus; tokenl
 also restores them. On macOS, no-focus show uses `orderFrontRegardless`, rather than winit's
 `makeKeyAndOrderFront`. Window-manager focus policy still applies. `WindowHandle`
 also provides show/hide/focus, placement and topmost control on the event thread.
-The app owns its tray; Rune supplies the window lifetime and handles.
+`rune::Tray` provides a system tray icon and menu on Windows (`Shell_NotifyIcon`) and
+Linux (StatusNotifierItem / `dbusmenu`, with the default `dbus` feature). On macOS (and
+other platforms), `Tray::new` returns `Err(TrayError::Unsupported)` because macOS status
+items are not implemented yet, so a macOS app still owns its status item while Rune
+supplies the window lifetime and handles.
 `RunOptions::accessory` applies the macOS process policy before the event loop is
 created: no Dock icon/default menu and no activation at launch. Other platforms
 ignore it; `run_windows` keeps its regular-launch default.
@@ -1237,6 +1241,12 @@ A root `.on_window_focus(|state: &mut State, focused, tx| ...)` receives native
 activation/deactivation in order. It applies to regular windows and interactive
 overlays, independently of text-field focus. Headless tests inject the same events
 with `Runtime::window_focus(bool)`.
+
+`tx.window_visible()` says, in a handler or `poll`, whether the window is on screen: false
+while it's hidden, minimised, covered whole by other windows where the system says so, or its
+browser tab is hidden. Such a window draws no frames, but each change wakes `poll` once, so
+work no one sees (a live preview, a ticker) can pause there and resume when it shows;
+`App::on_visibility` hears the same changes.
 
 `Live<T>` is a cloneable, thread-safe latest-wins handle (`f32`, `[f32; 2]`,
 `[f32; 4]`, `Color`). Call `set(value)` from a producer thread; Rune coalesces a
@@ -1827,9 +1837,11 @@ PNGs. See [`examples/overlay`](../../examples/overlay) for a normal control wind
 one overlay per monitor, a shared remote cursor, a stroke and hit-test toggling.
 
 Monitor enumeration is a startup snapshot. Winit platform/window-manager support
-still governs transparency, placement and topmost behavior. Non-activating macOS
-`NSPanel`s, all-Spaces/fullscreen-space policy and status items need Rune's own Mac
-shell; they are not implemented here.
+still governs transparency, placement and topmost behavior. On macOS, non-activating
+`NSPanel`s with all-Spaces and full-screen policy are available through `App::overlay`
+(see "Edge overlays" below), `WindowOptions::launcher_panel()`, and
+`MacWindowOptions::nonactivating_panel(true)` (ordinary windows can also set
+`MacWindowOptions::collection_behavior`); macOS status items are not implemented.
 Unsupported transparency falls back to opaque rendering; unsupported click-through
 prints the platform error. Metal surfaces retain premultiplied colour for Core Animation.
 
@@ -2648,6 +2660,8 @@ $L --desktop examples/launcher/backdrop.png --script examples/launcher/scripts/d
   previous presented frame, written only when that frame asked for this one right away, so idle
   time isn't counted.
   `present_ms` is `null` when the system skipped the drawable and absent when no time arrived.
+  A frame carries `hz` when the display's refresh rate differs from the last one written (the
+  header's, at first), so the summary below uses the rate the display settled at.
   Lines are written once their present time arrives, two or three frames late. When the trace
   ends, stderr gets a summary: present-interval p50/p95/max, intervals under 2 ms (frames
   bunched onto the screen together) and over 1.5 refresh periods (missed refreshes), and the

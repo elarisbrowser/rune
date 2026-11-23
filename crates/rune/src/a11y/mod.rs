@@ -12,11 +12,15 @@ use accesskit::{ActionHandler, ActionRequest, ActivationHandler, DeactivationHan
 use crate::runtime::Runtime;
 
 pub(crate) mod actions;
+#[cfg(test)]
+mod actions_tests;
 pub(crate) mod dump;
 mod graft;
 #[cfg(test)]
 mod graft_tests;
 pub(crate) use graft::Grafts;
+#[cfg(test)]
+mod dump_tests;
 mod node;
 pub(crate) mod roles;
 #[cfg(test)]

@@ -105,9 +105,9 @@ pub(crate) fn unit_at(text: &str, i: usize, unit: Unit) -> (usize, usize) {
 
 /// Where each of `text`'s words ends, in order, the last at `text.len()`: ICU4X's dictionaries
 /// natively, the browser's (`Intl.Segmenter`) in a page and Windows' own (`icu.dll`) on Windows,
-/// which link none.
+/// which link none, with Chromium's tailoring (`foo.bar` is three words).
 fn word_ends(text: &str) -> impl Iterator<Item = usize> {
-    rune_text::segmenter::words(text).into_iter()
+    rune_text::segmenter::word_ends(text).into_iter()
 }
 
 /// The selection a drag from unit range `origin` to unit range `at` makes: (anchor, focus).
@@ -204,13 +204,19 @@ fn dist_x(r: [f32; 4], x: f32) -> f32 { (r[0] - x).max(x - r[2]).max(0.0) }
 /// key, so a keyed text keeps its selection when a sibling shifts an unkeyed ancestor's index.
 pub(in crate::runtime) fn same_keyed_path(a: &str, b: &str) -> bool {
     fn split(p: &str) -> Option<(&str, &str)> {
-        let last_key = p.rmatch_indices('/').find(|&(i, _)| !p[i + 1..].starts_with('#'))
-            .map_or_else(|| (!p.starts_with('#')).then_some(0), |(i, _)| Some(i + 1))?;
-        let end = last_key + p[last_key..].find('/').unwrap_or(p.len() - last_key);
+        let seg_end = |start: usize| start + p[start..].find('/').unwrap_or(p.len() - start);
+        let end = p.rmatch_indices('/').find_map(|(i, _)| {
+            let end = seg_end(i + 1);
+            (!element_path::is_unkeyed_segment(&p[i + 1..end])).then_some(end)
+        }).or_else(|| {
+            let end = seg_end(0);
+            (!element_path::is_unkeyed_segment(&p[..end])).then_some(end)
+        })?;
         Some((&p[..end], &p[end..]))
     }
     let (Some((ka, ta)), Some((kb, tb))) = (split(a), split(b)) else { return false };
-    ta == tb && ka.split('/').filter(|s| !s.starts_with('#')).eq(kb.split('/').filter(|s| !s.starts_with('#')))
+    ta == tb && ka.split('/').filter(|s| !element_path::is_unkeyed_segment(s))
+        .eq(kb.split('/').filter(|s| !element_path::is_unkeyed_segment(s)))
 }
 
 impl caret::TextInputState {
@@ -652,6 +658,13 @@ impl RuntimeCore {
         }
     }
 
+    /// Snapshot of an in-progress text selection drag's endpoints, used to detect whether a
+    /// pointer move changed the painted selection.
+    pub(in crate::runtime) fn selection_drag_snapshot(&self) -> Option<(usize, usize, Option<String>)> {
+        let phase::Phase::Dragging { selection, .. } = &self.edit.selectable.phase else { return None };
+        Some((selection.anchor, selection.focus, selection.far.as_ref().map(|f| f.path.clone())))
+    }
+
     /// The held press moved: extend the selection it started to the pointer, by its unit, into
     /// the other texts of its selection group. The press itself may belong to an ancestor (a
     /// clickable row), so this follows the selection's own text.
@@ -768,6 +781,19 @@ mod tests {
         assert_eq!(unit_at(s, 5, Unit::Paragraph), (0, 21), "a paragraph takes its line break");
         assert_eq!(unit_at(s, 23, Unit::Paragraph), (21, s.len()));
         assert_eq!(unit_at("", 0, Unit::Word), (0, 0));
+    }
+
+    #[test]
+    fn words_break_as_chromium_breaks_them() {
+        // A full stop or colon between letters ends a word; between digits, and an apostrophe, don't.
+        let s = "foo.bar_baz qux";
+        assert_eq!(unit_at(s, 1, Unit::Word), (0, 3));
+        assert_eq!(unit_at(s, 3, Unit::Word), (3, 4));
+        assert_eq!(unit_at(s, 6, Unit::Word), (4, 11));
+        assert_eq!(unit_at("a:b c", 0, Unit::Word), (0, 1));
+        assert_eq!(unit_at("1,000.50 x", 2, Unit::Word), (0, 8));
+        assert_eq!(unit_at("can't stop", 1, Unit::Word), (0, 5));
+        assert_eq!(unit_at("user@example.com", 7, Unit::Word), (5, 12));
     }
 
     #[test]
