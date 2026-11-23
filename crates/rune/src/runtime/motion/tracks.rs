@@ -651,6 +651,7 @@ impl RuntimeCore {
         let scale = f64::from(self.env.scale * self.zoom());
         // Motion reduced mid-ease: a wheel's ease lands where it was going, at once.
         let land_wheels = !self.wheel_glides();
+        let live = self.scroll.wheel_live(self.now_clock());
         let mut moving = false;
         for i in 0..self.tree.nodes.len() {
             let Some(sp) = self.tree.nodes[i].scroll else { continue };
@@ -708,14 +709,28 @@ impl RuntimeCore {
                     let pins = sp.stick_bottom && curve.to_end() && st.offset == st.max;
                     if curve.done() || pins { st.land(sp.stick_bottom) } else { st.mode = st.mode.to_wheel(curve); moving = true; }
                 }
+                // Held past an end while the trackpad moves; the gesture's end wakes the spring back.
+                ScrollMode::Rubber { .. } if live => {}
+                ScrollMode::Rubber { v, .. } => {
+                    let edge = if st.offset < 0.0 { 0.0 } else { st.max };
+                    let (offset, v) = crate::runtime::scroll::touch::rebound(st.offset, v, edge, dt);
+                    if (offset - edge).abs() < 0.1 && v.abs() < 1.0 {
+                        st.offset = edge;
+                        st.mode = st.mode.to_rest();
+                    } else {
+                        st.offset = offset;
+                        st.mode = st.mode.to_rubber(v, offset);
+                    }
+                    moving = true;
+                }
                 ScrollMode::Pinned(_) | ScrollMode::Rest(_) => {}
             }
-            st.offset = st.offset.clamp(0.0, st.max);
+            if !matches!(st.mode, ScrollMode::Rubber { .. }) { st.offset = st.offset.clamp(0.0, st.max); }
             // Landed on a shrinking stack's new end: stick once its rows are within half a point
             // of it, not while they're still short of it. A glide that reaches the end hands it
             // to the pin.
             let shrinking = laid.is_some_and(|end| end < st.max - 0.5 && st.offset < st.max - 1e-3);
-            if sp.stick_bottom && !held && !shrinking && st.glide().is_none() && st.mode.wheel().is_none() && st.offset >= st.max - 0.5 && st.coast().abs() <= 1.0 {
+            if sp.stick_bottom && !held && !shrinking && st.glide().is_none() && st.mode.wheel().is_none() && !matches!(st.mode, ScrollMode::Rubber { .. }) && st.offset >= st.max - 0.5 && st.coast().abs() <= 1.0 {
                 st.pin();
             }
             let _ = scroll_mode::step(&mut st.mode, ModeEvent::Laid(laid));

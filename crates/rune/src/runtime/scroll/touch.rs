@@ -144,8 +144,14 @@ pub(in crate::runtime) fn step(state: &mut Option<TouchScroll>, event: TouchEven
     }
 }
 
+/// How far past an end a pull `over` points reaches: a pull that stretches less and less as it
+/// goes (the rubber band's resistance, `0.55` at the edge and tapering).
+pub(in crate::runtime) fn resist(over: f64) -> f64 {
+    over * 0.55 / (1.0 + over.abs() * 0.55 / 300.0)
+}
+
 /// A critically damped edge return, integrated exactly for variable frame times.
-fn rebound(offset: f64, velocity: f32, target: f64, dt: f32) -> (f64, f32) {
+pub(in crate::runtime) fn rebound(offset: f64, velocity: f32, target: f64, dt: f32) -> (f64, f32) {
     let dt = f64::from(dt);
     let displacement = offset - target;
     let b = f64::from(velocity) + 14.0 * displacement;
@@ -230,7 +236,7 @@ impl RuntimeCore {
                     let to = origin + toward;
                     let edge = to.clamp(0.0, max);
                     let over = to - edge;
-                    *offset = edge + over * 0.55 / (1.0 + over.abs() * 0.55 / 300.0);
+                    *offset = edge + resist(over);
                     if !horizontal { st.mode = st.mode.to_rest(); }
                     st.moved();
                     self.pointer.scroll_cancels_press(&self.tree.nodes, id);

@@ -21,6 +21,8 @@ const PHASED_IDLE: f64 = 1.0;
 /// A gesture that begins within this many seconds of one ending is its momentum (AppKit
 /// reports momentum as a phase of its own), so it keeps the axis.
 const MOMENTUM_GAP: f64 = 0.05;
+/// A trackpad gesture whose last delta came longer ago than this has stopped moving.
+const LIVE_GAP: f64 = 0.1;
 /// A run of vertical deltas stays with the viewport it began on while each comes within this
 /// many seconds of the last and the pointer within this many points of where it began, as
 /// Chromium latches a wheel's scroll (`content/browser/renderer_host/input/
@@ -258,6 +260,11 @@ impl WheelLock {
 
     /// Whether the platform reports the phases of the gesture the lock runs.
     pub(in crate::runtime) fn phased(&self) -> bool { self.phase.phased() }
+
+    /// Whether a phased gesture is still moving at `now`: not ended, with a delta within `LIVE_GAP`.
+    pub(in crate::runtime) fn live(&self, now: f64) -> bool {
+        self.phase.phased() && self.phase.ended().is_none() && self.phase.at().is_some_and(|at| now - at <= LIVE_GAP)
+    }
 
     /// A delta of `gesture` runs: an owner the lock already holds for that gesture takes it, and
     /// any other queued gesture starts afresh, beside the arriving gesture's own owner.
