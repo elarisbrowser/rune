@@ -1,0 +1,1 @@
+- Native windows run an `on_wheel` handler that already holds the wheel's gesture as each delta arrives, instead of at the next frame, so a handler that forwards deltas to another process's display clock (a browser's page) no longer lands them in bursts that miss its frames. Deltas still wait behind other queued input.

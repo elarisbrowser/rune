@@ -259,3 +259,59 @@ fn a_third_gesture_scrolling_before_the_frame_keeps_both_queued_owners() {
     let id = rt.tree.nodes.iter().find(|n| n.key.as_deref() == Some("list")).unwrap().id;
     assert_eq!(rt.scroll.scrolls[&id].offset, 10.0, "only the third gesture's own delta scrolled");
 }
+
+#[derive(Default)]
+struct Wheels { dy: Vec<f32>, keys: usize }
+
+fn wheels(_: &Wheels, _: &mut crate::Cx<Wheels>) -> El {
+    el().w_full().h_full()
+        .on_key_up(|s: &mut Wheels, _, _| { s.keys += 1; true })
+        .on_wheel(|s: &mut Wheels, e, _| { s.dy.push(e.dy); true })
+}
+
+fn wheel(rt: &mut Runtime<Wheels>, dy: f32, phase: crate::GesturePhase) {
+    rt.wheel_event(WheelEvent::new(0.0, dy).at(50.0, 50.0).phase(phase));
+}
+
+fn run_held_wheels(rt: &mut Runtime<Wheels>) {
+    let (core, mut app) = rt.split_mut();
+    core.run_held_wheels(&mut app);
+}
+
+#[test]
+fn a_handler_holding_the_wheel_hears_its_deltas_as_they_arrive() {
+    let mut rt = Runtime::new(Wheels::default(), wheels, (100.0, 100.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    rt.pointer_move(50.0, 50.0);
+    // The gesture's first delta picks its handler in a frame.
+    wheel(&mut rt, -10.0, crate::GesturePhase::Began);
+    run_held_wheels(&mut rt);
+    assert!(rt.state.dy.is_empty());
+    rt.frame(0.0);
+    assert_eq!(rt.state.dy, [-10.0]);
+    // The handler holds it now, so the next ones need no frame.
+    wheel(&mut rt, -20.0, crate::GesturePhase::Moved);
+    run_held_wheels(&mut rt);
+    wheel(&mut rt, -30.0, crate::GesturePhase::Moved);
+    run_held_wheels(&mut rt);
+    assert_eq!(rt.state.dy, [-10.0, -20.0, -30.0]);
+    rt.frame(0.0);
+    assert_eq!(rt.state.dy, [-10.0, -20.0, -30.0], "each delta heard once");
+}
+
+#[test]
+fn held_wheel_deltas_wait_behind_other_queued_input() {
+    let mut rt = Runtime::new(Wheels::default(), wheels, (100.0, 100.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    rt.pointer_move(50.0, 50.0);
+    wheel(&mut rt, -10.0, crate::GesturePhase::Began);
+    rt.frame(0.0);
+    rt.key_up(up_key());
+    wheel(&mut rt, -20.0, crate::GesturePhase::Moved);
+    run_held_wheels(&mut rt);
+    assert_eq!((rt.state.dy.len(), rt.state.keys), (1, 0));
+    rt.frame(0.0);
+    assert_eq!((rt.state.dy.as_slice(), rt.state.keys), ([-10.0, -20.0].as_slice(), 1));
+}
+
+fn up_key() -> KeyEvent { KeyEvent { key: crate::Key::Text("a".into()), mods: Mods::default() } }

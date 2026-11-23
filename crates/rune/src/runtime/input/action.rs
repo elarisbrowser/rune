@@ -108,6 +108,7 @@ impl ActionQueue {
     pub(in crate::runtime) fn is_empty(&self) -> bool { self.0.is_empty() }
     pub(in crate::runtime) fn retain(&mut self, mut keep: impl FnMut(&Action) -> bool) { self.0.retain(|q| keep(&q.action)); }
     pub(in crate::runtime) fn remove(&mut self, index: usize) -> Action { self.0.remove(index).action }
+    pub(in crate::runtime) fn into_vec(self) -> Vec<Queued> { self.0 }
 }
 
 impl Extend<Action> for ActionQueue {

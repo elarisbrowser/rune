@@ -484,6 +484,7 @@ impl Host {
             }
             WindowEvent::MouseWheel { delta, phase, .. } => {
                 host_events::wheel(app.rt_mut(), delta, gesture_phase(phase), scale, self.mods);
+                app.with_driver(&mut |rt, driver| rt.run_held_wheels(driver));
                 l.request_redraw();
             }
             WindowEvent::PinchGesture { delta, phase, .. } => {

@@ -69,6 +69,23 @@ impl RuntimeCore {
         None
     }
 
+    /// Runs the wheel deltas queued for the handler that already holds their gesture now,
+    /// rather than at the next frame, so a handler that forwards them elsewhere (a browser's
+    /// page, painted by another process on its own display clock) does so as they arrive.
+    /// Only while nothing else waits ahead of them, which keeps input in order. Their `Tx`
+    /// carries into the next frame, which commits if a handler changed what the view reads.
+    pub(crate) fn run_held_wheels(&mut self, app: &mut dyn AppDriver) {
+        let held = |rt: &Self, action: &Action| matches!(action, Action::Wheel { gesture, .. }
+            if matches!(rt.scroll.wheel_owner_of(*gesture), Some(WheelOwner::Handler(_))));
+        if self.frame.queue.is_empty() || !self.frame.queue.iter().all(|a| held(self, a)) { return; }
+        let mut tx = std::mem::take(&mut self.frame.pending);
+        for queued in std::mem::take(&mut self.frame.queue).into_vec() {
+            let _input = crate::input::time::scope(queued.at);
+            if self.run_action(app, queued.action, &mut tx) { self.commit.dirty = true; }
+        }
+        self.frame.pending = tx;
+    }
+
     /// A queued wheel delta: the handler holding its gesture hears it, else each handler
     /// under the pointer until one takes it, else it scrolls. Each queued delta keeps its own
     /// gesture's turn and axis policy, so one queued before a newer gesture began still reaches
