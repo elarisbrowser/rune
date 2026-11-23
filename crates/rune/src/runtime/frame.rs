@@ -14,14 +14,7 @@ impl RuntimeCore {
 
     /// The last frame no longer shows the window: state, its size or queued input changed since.
     pub(crate) fn stale(&self) -> bool {
-        self.needs_commit() || self.commit.relayout || !self.frame.queue.is_empty() || self.rubber_released()
-    }
-
-    /// A trackpad pull held past an end whose gesture has stopped: its spring back is due, which
-    /// changes the picture without a commit, so a resting window's due wake must draw it.
-    pub(crate) fn rubber_released(&self) -> bool {
-        self.scroll.wheel_release_at().is_some_and(|due| self.clock >= due)
-            && self.scroll.scrolls.values().any(|st| matches!(st.mode, crate::runtime::scroll_mode::ScrollMode::Rubber { .. }))
+        self.needs_commit() || self.commit.relayout || !self.frame.queue.is_empty()
     }
 
     /// A live-edit patch arrived that the next frame hasn't rebuilt the view with yet.

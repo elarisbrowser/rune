@@ -1,1 +1,0 @@
-- Scrolling: a trackpad pull held past a scroll viewport's end now draws its spring back when the release comes due, even while the window is otherwise resting, instead of waiting for the next input.

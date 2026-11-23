@@ -424,9 +424,6 @@ fn a_pull_springs_back_on_its_own_frames_without_an_end() {
     let now = rt.core_mut().now_clock();
     let wake = rt.wake_deadline().expect("the release wakes a frame");
     assert!(wake > now && wake - now <= 0.11, "due one gap after the last delta: {wake} at {now}");
-    assert!(!rt.core_mut().stale(), "nothing to draw until the release is due");
-    rt.core_mut().clock = wake + 0.001;
-    assert!(rt.core_mut().stale(), "a resting window's due wake draws the spring back");
     let mut frames = 0;
     while rt.scroll.scrolls[&list].offset != 0.0 && frames < 240 {
         rt.frame(dt);
