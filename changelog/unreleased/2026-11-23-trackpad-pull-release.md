@@ -1,1 +1,0 @@
-- Scrolling: a trackpad pull past a scroll viewport's end now stretches less, about 50 points at most where a touch pan reaches 300, and springs back on a frame scheduled for the moment the trackpad stops, instead of waiting for the next input.

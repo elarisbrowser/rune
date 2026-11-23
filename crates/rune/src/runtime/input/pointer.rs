@@ -683,7 +683,7 @@ impl RuntimeCore {
         let pulled = phased && !(0.0..=st.max).contains(&raw);
         if pulled {
             let edge = raw.clamp(0.0, st.max);
-            st.offset = edge + crate::runtime::scroll::touch::TRACKPAD.resist(raw - edge);
+            st.offset = edge + crate::runtime::scroll::touch::resist(raw - edge);
             st.mode = st.mode.to_rubber(0.0, raw);
         } else {
             st.offset = raw.clamp(0.0, st.max);
@@ -693,6 +693,7 @@ impl RuntimeCore {
         log_event!(self, "wheel {dy:.1}");
         let moved = st.offset != before;
         if moved { self.pointer.scroll_cancels_press(&self.tree.nodes, id); }
+        if pulled && let Some(due) = self.scroll.wheel_release_at() { self.wake_at(due); }
         self.scroll.ran_wheel_vertical(id, now, x, y, dy, moved, held);
     }
 

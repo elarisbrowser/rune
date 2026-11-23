@@ -653,6 +653,7 @@ impl RuntimeCore {
         let land_wheels = !self.wheel_glides();
         let now = self.now_clock();
         let release = self.scroll.wheel_release_at().filter(|&due| now < due);
+        // A rubber band held by a moving trackpad wakes at its release, to spring back on time.
         let mut hold_until = None;
         let mut moving = false;
         for i in 0..self.tree.nodes.len() {
@@ -711,8 +712,7 @@ impl RuntimeCore {
                     let pins = sp.stick_bottom && curve.to_end() && st.offset == st.max;
                     if curve.done() || pins { st.land(sp.stick_bottom) } else { st.mode = st.mode.to_wheel(curve); moving = true; }
                 }
-                // Held past an end while the trackpad moves; the release is a loop wake, so its frame
-                // comes on time without frames running meanwhile.
+                // Held past an end while the trackpad moves; it springs back once the moving stops.
                 ScrollMode::Rubber { .. } if release.is_some() => hold_until = release,
                 ScrollMode::Rubber { v, .. } => {
                     let edge = if st.offset < 0.0 { 0.0 } else { st.max };
@@ -723,7 +723,7 @@ impl RuntimeCore {
                     } else {
                         st.offset = offset;
                         // The pull it still stands for, so a stretch that resumes resists from there.
-                        st.mode = st.mode.to_rubber(v, edge + crate::runtime::scroll::touch::TRACKPAD.unresist(offset - edge));
+                        st.mode = st.mode.to_rubber(v, edge + crate::runtime::scroll::touch::unresist(offset - edge));
                     }
                     moving = true;
                 }
@@ -740,10 +740,7 @@ impl RuntimeCore {
             let _ = scroll_mode::step(&mut st.mode, ModeEvent::Laid(laid));
             if sp.stick_bottom && axes.y() && slack_dt > 0.0 { moving |= self.step_slack(i, slack_dt); }
         }
-        if let Some(due) = hold_until {
-            let at = self.t + (due - now) * f64::from(self.time_scale);
-            self.motion.arm_loop_wake(due, at);
-        }
+        if let Some(due) = hold_until { self.wake_at(due); }
         moving
     }
 }

@@ -387,7 +387,7 @@ fn a_trackpad_pull_past_the_top_springs_back_once_the_gesture_stops() {
     wheel(&mut rt, 40.3, GesturePhase::Began);
     wheel(&mut rt, 40.3, GesturePhase::Moved);
     let pulled = rt.scroll.scrolls[&list].offset;
-    let expected = crate::runtime::scroll::touch::TRACKPAD.resist(-80.6);
+    let expected = crate::runtime::scroll::touch::resist(-80.6);
     assert!((pulled - expected).abs() < 0.05, "two deltas stretch as one pull of their sum, with resistance: {pulled} vs {expected}");
     assert!(matches!(rt.scroll.scrolls[&list].mode, ScrollMode::Rubber { .. }));
 
@@ -403,10 +403,10 @@ fn a_trackpad_pull_past_the_top_springs_back_once_the_gesture_stops() {
     assert_eq!(rt.scroll.scrolls[&list].offset, 0.0, "a mouse wheel is clamped at the edge, not stretched");
 }
 
-/// A pull is held quietly and wakes a frame at its release, then springs back on its own frames
-/// with no `Ended` and no input after it.
+/// A pull springs back on its own once the trackpad stops, even with no `Ended` and no input
+/// after it: the runtime asks for a wake at the release.
 #[test]
-fn a_pull_springs_back_on_its_own_frames_without_an_end() {
+fn a_pull_springs_back_from_its_release_wake_without_an_end() {
     use crate::{GesturePhase, WheelEvent};
     use crate::runtime::scroll_mode::ScrollMode;
     fn view(_: &(), _: &mut Cx<()>) -> El {
@@ -418,18 +418,12 @@ fn a_pull_springs_back_on_its_own_frames_without_an_end() {
     let list = rt.tree.nodes.iter().find(|n| n.key.as_deref() == Some("list")).unwrap().id;
     rt.wheel_event(WheelEvent::new(0.0, 40.3).at(100.0, 100.0).phase(GesturePhase::Began));
     rt.wheel_event(WheelEvent::new(0.0, 40.3).at(100.0, 100.0).phase(GesturePhase::Moved));
-    let dt = 1.0 / 60.0;
-    for _ in 0..3 { rt.frame(dt); }
-    assert!(!rt.core_mut().step_scroll(dt as f32), "held quietly: no frames while the trackpad is still");
     let now = rt.core_mut().now_clock();
-    let wake = rt.wake_deadline().expect("the release wakes a frame");
-    assert!(wake > now && wake - now <= 0.11, "due one gap after the last delta: {wake} at {now}");
+    let wake = rt.core_mut().frame.next_wake_deadline().expect("the release is a wake");
+    assert!(wake > now && wake - now <= 0.11, "due one gap after the last delta: {wake}");
     let mut frames = 0;
-    while rt.scroll.scrolls[&list].offset != 0.0 && frames < 240 {
-        rt.frame(dt);
-        frames += 1;
-    }
-    assert_eq!(rt.scroll.scrolls[&list].offset, 0.0, "springs back on its own frames");
+    while rt.scroll.scrolls[&list].offset != 0.0 && frames < 240 { rt.frame(1.0 / 60.0); frames += 1; }
+    assert_eq!(rt.scroll.scrolls[&list].offset, 0.0, "springs back on the wake alone");
     assert!(matches!(rt.scroll.scrolls[&list].mode, ScrollMode::Rest(_)));
     assert!(frames < 120, "back within two seconds: {frames} frames");
 }
