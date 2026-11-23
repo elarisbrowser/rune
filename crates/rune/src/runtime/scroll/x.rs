@@ -42,6 +42,8 @@ pub(in crate::runtime) struct WheelLock {
     /// while deltas of it still wait in the queue for `on_wheel` handlers.
     run: WheelRun,
     phase: WheelPhase,
+    /// When the last delta of any phase came, which a trackpad pull's release counts from.
+    last_delta: Option<f64>,
     /// The vertical viewport the current run of deltas scrolls, once one has.
     vertical: Option<VerticalRun>,
     /// Whether the current run of deltas is a notched wheel's.
@@ -261,9 +263,10 @@ impl WheelLock {
     /// Whether the platform reports the phases of the gesture the lock runs.
     pub(in crate::runtime) fn phased(&self) -> bool { self.phase.phased() }
 
-    /// Whether a phased gesture is still moving at `now`: not ended, with a delta within `LIVE_GAP`.
-    pub(in crate::runtime) fn live(&self, now: f64) -> bool {
-        self.phase.phased() && self.phase.ended().is_none() && self.phase.at().is_some_and(|at| now - at <= LIVE_GAP)
+    /// When a phased gesture stops counting as moving: `LIVE_GAP` after its last delta. Momentum
+    /// deltas keep it moving after the platform ends the gesture, so the end isn't the cue.
+    pub(in crate::runtime) fn release_at(&self) -> Option<f64> {
+        if self.phase.phased() { self.last_delta.map(|at| at + LIVE_GAP) } else { None }
     }
 
     /// A delta of `gesture` runs: an owner the lock already holds for that gesture takes it, and
@@ -317,6 +320,15 @@ impl WheelLock {
     /// A delta arrived at `now`, on (dx, dy) points: a gesture idle too long, ended, or wholly
     /// on the other axis (Shift let go, a tilt, a second wheel), is over, and this delta starts
     /// the next.
+    /// A platform momentum delta after a phased gesture ended continues that gesture as its momentum,
+    /// not as a new one. Returns false when the gesture it would continue isn't one.
+    fn continue_momentum(&mut self, now: f64) -> bool {
+        if !matches!(self.phase, WheelPhase::Ended { from: GestureKind::Phased | GestureKind::Momentum, .. }) { return false; }
+        self.phase = WheelPhase::Momentum { at: now };
+        self.last_delta = Some(now);
+        true
+    }
+
     fn delta(&mut self, now: f64, dx: f32, dy: f32, pending: Option<Attempt>) {
         let phased = self.phase.phased();
         let idle = if phased { PHASED_IDLE } else { WHEEL_IDLE };
@@ -324,6 +336,7 @@ impl WheelLock {
         let stale = self.phase.ended().is_some() || self.phase.at().is_none_or(|a| now - a > idle) || flipped;
         if stale { self.restart(pending); }
         self.phase = self.phase.moving(now);
+        self.last_delta = Some(now);
     }
 
     /// The viewport a vertical delta `dy` at (x, y) at `now` keeps to, when it continues the run.
@@ -429,9 +442,9 @@ impl requests::ScrollTables {
     /// is over, and this delta starts the next. Without phases, a delta wholly on the other
     /// axis (Shift let go, a tilt, a second wheel) also starts a new gesture.
     #[inline]
-    pub(in crate::runtime) fn wheel_delta(&mut self, now: f64, dx: f32, dy: f32, pending: Option<Attempt>) {
+    pub(in crate::runtime) fn wheel_delta(&mut self, now: f64, dx: f32, dy: f32, pending: Option<Attempt>, momentum: bool) {
         self.drop_holds();
-        self.wheel_lock.delta(now, dx, dy, pending);
+        if !(momentum && self.wheel_lock.continue_momentum(now)) { self.wheel_lock.delta(now, dx, dy, pending); }
     }
 
     #[inline]

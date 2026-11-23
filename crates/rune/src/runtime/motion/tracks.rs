@@ -651,7 +651,10 @@ impl RuntimeCore {
         let scale = f64::from(self.env.scale * self.zoom());
         // Motion reduced mid-ease: a wheel's ease lands where it was going, at once.
         let land_wheels = !self.wheel_glides();
-        let live = self.scroll.wheel_live(self.now_clock());
+        let now = self.now_clock();
+        let release = self.scroll.wheel_release_at().filter(|&due| now < due);
+        // A rubber band held by a moving trackpad wakes at its release, to spring back on time.
+        let mut hold_until = None;
         let mut moving = false;
         for i in 0..self.tree.nodes.len() {
             let Some(sp) = self.tree.nodes[i].scroll else { continue };
@@ -709,8 +712,8 @@ impl RuntimeCore {
                     let pins = sp.stick_bottom && curve.to_end() && st.offset == st.max;
                     if curve.done() || pins { st.land(sp.stick_bottom) } else { st.mode = st.mode.to_wheel(curve); moving = true; }
                 }
-                // Held past an end while the trackpad moves; the gesture's end wakes the spring back.
-                ScrollMode::Rubber { .. } if live => {}
+                // Held past an end while the trackpad moves; it springs back once the moving stops.
+                ScrollMode::Rubber { .. } if release.is_some() => hold_until = release,
                 ScrollMode::Rubber { v, .. } => {
                     let edge = if st.offset < 0.0 { 0.0 } else { st.max };
                     let (offset, v) = crate::runtime::scroll::touch::rebound(st.offset, v, edge, dt);
@@ -719,7 +722,8 @@ impl RuntimeCore {
                         st.mode = st.mode.to_rest();
                     } else {
                         st.offset = offset;
-                        st.mode = st.mode.to_rubber(v, offset);
+                        // The pull it still stands for, so a stretch that resumes resists from there.
+                        st.mode = st.mode.to_rubber(v, edge + crate::runtime::scroll::touch::unresist(offset - edge));
                     }
                     moving = true;
                 }
@@ -736,6 +740,7 @@ impl RuntimeCore {
             let _ = scroll_mode::step(&mut st.mode, ModeEvent::Laid(laid));
             if sp.stick_bottom && axes.y() && slack_dt > 0.0 { moving |= self.step_slack(i, slack_dt); }
         }
+        if let Some(due) = hold_until { self.wake_at(due); }
         moving
     }
 }
