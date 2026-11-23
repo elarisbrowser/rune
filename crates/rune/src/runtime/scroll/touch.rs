@@ -144,18 +144,36 @@ pub(in crate::runtime) fn step(state: &mut Option<TouchScroll>, event: TouchEven
     }
 }
 
-/// How far past an end a pull `over` points reaches: a pull that stretches less and less as it
-/// goes (the rubber band's resistance, `0.55` at the edge and tapering).
-pub(in crate::runtime) fn resist(over: f64) -> f64 {
-    over * 0.55 / (1.0 + over.abs() * 0.55 / 300.0)
+/// A rubber band's stiffness `k` (its slope at the edge) and the stretch it approaches, `limit`
+/// points past the edge.
+#[derive(Clone, Copy)]
+pub(in crate::runtime) struct Stretch {
+    pub k: f64,
+    pub limit: f64,
 }
 
-/// The pull `r` that `resist` maps to: the inverse, for a stretch that resumes after its spring
-/// back has moved the viewport.
-pub(in crate::runtime) fn unresist(r: f64) -> f64 {
-    let b = r.abs().min(299.0);
-    (b / (0.55 * (1.0 - b / 300.0))).copysign(r)
+/// Touch pans stretch past an end this far.
+pub(in crate::runtime) const TOUCH: Stretch = Stretch { k: 0.55, limit: 300.0 };
+/// A trackpad's pull past an end stretches less than a touch pan.
+pub(in crate::runtime) const TRACKPAD: Stretch = Stretch { k: 0.35, limit: 50.0 };
+
+impl Stretch {
+    /// How far past an end a pull `over` points reaches: a pull that stretches less and less as it
+    /// goes.
+    pub(in crate::runtime) fn resist(self, over: f64) -> f64 {
+        over * self.k / (1.0 + over.abs() * self.k / self.limit)
+    }
+
+    /// The pull that `resist` maps to `r`: the inverse, for a stretch that resumes after its spring
+    /// back has moved the viewport.
+    pub(in crate::runtime) fn unresist(self, r: f64) -> f64 {
+        let b = r.abs().min(self.limit - 1.0);
+        (b / (self.k * (1.0 - b / self.limit))).copysign(r)
+    }
 }
+
+/// `TOUCH`'s resistance, for a touch pan's overscroll.
+pub(in crate::runtime) fn resist(over: f64) -> f64 { TOUCH.resist(over) }
 
 /// A critically damped edge return, integrated exactly for variable frame times.
 pub(in crate::runtime) fn rebound(offset: f64, velocity: f32, target: f64, dt: f32) -> (f64, f32) {
