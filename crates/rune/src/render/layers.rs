@@ -315,6 +315,7 @@ impl Renderer {
             self.backdrops.clear();
             if let Some(blur) = &mut self.backdrop_blur { blur.give_back(); }
         }
+        if let Some(surfaces) = &mut self.surfaces { surfaces.rest(); }
         #[cfg(all(feature = "alloc-sites", not(target_arch = "wasm32")))]
         self.report_pools();
     }

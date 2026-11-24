@@ -990,3 +990,7 @@ fn rotated_clip_buffers_draw_upright_like_its_poster_on(gpu: Gpu) {
         }
     }
 }
+
+#[cfg(target_os = "macos")]
+#[path = "rest_tests.rs"]
+mod rest;

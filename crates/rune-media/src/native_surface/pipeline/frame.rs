@@ -239,6 +239,19 @@ impl SurfaceRenderer {
     pub fn is_empty(&self) -> bool {
         self.draws.is_empty()
     }
+    /// Lets go of the frames no longer drawn, for a window at rest. Each draw's kept bind groups
+    /// (`KEPT_BINDS`) hold their frames' textures, and so the producer's surfaces, for a ring
+    /// that may come round again; a surface that has stopped sending frames won't. A macOS import
+    /// is freed only by a flush after its texture goes.
+    pub fn rest(&mut self) {
+        for p in &mut self.draws {
+            p.binds.clear();
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(i) = &self.importer {
+            i.flush();
+        }
+    }
     #[doc(hidden)]
     pub fn draws_nothing(&self) -> bool {
         self.draws.is_empty()

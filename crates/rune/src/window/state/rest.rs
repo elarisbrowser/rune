@@ -14,8 +14,9 @@
 //!
 //! Either way the runtime's caches go back to what the screen on show uses: text layouts the last
 //! two commits didn't use and their glyph runs (`TextSystem::rest`), images no element showed in
-//! the last frame and the CPU copies of pages left empty (`ImageAtlas::rest`). Then the app's
-//! `App::on_rest` runs, for its own caches.
+//! the last frame and the CPU copies of pages left empty (`ImageAtlas::rest`), and the native
+//! surface frames no longer on show (`SurfaceRenderer::rest`). Then the app's `App::on_rest`
+//! runs, for its own caches.
 
 use std::time::Duration;
 
