@@ -555,6 +555,13 @@ impl Host {
                             app.rt_mut().physical_input(crate::PhysicalInput::Modifiers(map_mods(self.mods)));
                             // AppKit needs the drag started inside this mouse-down.
                             match app.rt_mut().take_titlebar_action() {
+                                #[cfg(target_os = "macos")]
+                                Some(TitlebarAction::Drag) => {
+                                    // The drag loop takes the mouse-up, so deliver its release here.
+                                    mac::drag_window(&l.window);
+                                    app.pointer_up(x, y);
+                                }
+                                #[cfg(not(target_os = "macos"))]
                                 Some(TitlebarAction::Drag) => {
                                     l.window.drag_window().ok();
                                 }

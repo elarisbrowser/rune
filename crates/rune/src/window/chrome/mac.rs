@@ -5,8 +5,8 @@
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{msg_send, sel, ClassType};
-use objc2_app_kit::{NSEvent, NSPanel, NSWindowButton, NSWindowStyleMask};
-use objc2_foundation::{NSString, NSUserDefaults};
+use objc2_app_kit::{NSEvent, NSEventMask, NSEventType, NSPanel, NSWindowButton, NSWindowStyleMask};
+use objc2_foundation::{NSPoint, NSString, NSUserDefaults};
 use winit::window::Window;
 use crate::platform::macos::{content_view, has_subclass, kvo_observed, ns_window};
 
@@ -54,6 +54,23 @@ unsafe fn scope_drag_regions(view: &AnyObject) {
     // SAFETY: called on a live view on the main thread. Only its isa changes, to a subclass
     // without ivars; the original class is never modified.
     unsafe { AnyObject::set_class(view, class) };
+}
+
+/// Moves the window with the pointer until the primary button is released, for a press on a
+/// `.window_drag()` region. AppKit's `performWindowDragWithEvent:` no longer starts a move from
+/// a content view that refuses `mouseDownCanMoveWindow` (it logs "Window move completed without
+/// beginning"), so Rune tracks the drag itself. Call inside the mouse-down; it consumes the
+/// matching mouse-up.
+pub fn drag_window(window: &Window) {
+    let Some(win) = ns_window(window) else { return };
+    let start = NSEvent::mouseLocation();
+    let origin = win.frame().origin;
+    let mask = NSEventMask::LeftMouseDragged | NSEventMask::LeftMouseUp;
+    while let Some(event) = win.nextEventMatchingMask(mask) {
+        if event.r#type() == NSEventType::LeftMouseUp { break; }
+        let at = NSEvent::mouseLocation();
+        win.setFrameOrigin(NSPoint::new(origin.x + at.x - start.x, origin.y + at.y - start.y));
+    }
 }
 
 /// Redraws the window once it has entered or left full screen, so the redraw can place the
