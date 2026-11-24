@@ -184,14 +184,9 @@ thread_local! {
 /// Key for `FrameState::live_subscriptions`. Compiles to a plain `u64` outside tests; in tests,
 /// equality comparisons count lookups so regression tests prove `subscribe_live` is linear.
 #[derive(Clone, Copy, Debug, Eq, Hash)]
+#[cfg_attr(not(test), derive(PartialEq))]
 #[repr(transparent)]
 pub(super) struct SourceKey(pub(super) u64);
-
-#[cfg(not(test))]
-impl PartialEq for SourceKey {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool { self.0 == other.0 }
-}
 
 #[cfg(test)]
 impl PartialEq for SourceKey {
