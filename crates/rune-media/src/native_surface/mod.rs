@@ -155,6 +155,9 @@ struct State {
     /// macOS: a layer of the app's that shows this surface's content itself, under the UI.
     #[cfg(target_os = "macos")]
     layer: Option<macos::Layer>,
+    /// Wayland: a surface of the app's that shows this surface's content itself, under the UI.
+    #[cfg(target_os = "linux")]
+    wayland: Option<linux::WaylandSurface>,
 }
 /// Clones share a single bounded slot; pushing never queues frames behind the decoder.
 #[derive(Clone, Default)]
@@ -203,8 +206,16 @@ impl NativeSurface {
     pub fn has_layer(&self) -> bool {
         #[cfg(target_os = "macos")]
         return self.0.lock().unwrap().layer.is_some();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        return self.0.lock().unwrap().wayland.is_some();
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         false
+    }
+    /// The Wayland surface showing this surface's content (`set_wayland_surface`).
+    #[cfg(target_os = "linux")]
+    #[doc(hidden)]
+    pub fn wayland_surface(&self) -> Option<linux::WaylandSurface> {
+        self.0.lock().unwrap().wayland.clone()
     }
     pub fn set_waker(&self, waker: rune_core::Waker) {
         // The replaced waker's captures drop after the lock: one may read this surface's counts

@@ -73,6 +73,10 @@ mod tests;
 #[derive(Default)]
 pub(in crate::window) struct Native {
     pub(in crate::window) activator: Option<crate::platform::activation::Activator>,
+    /// App surfaces under a Wayland window (`NativeSurface::set_wayland_surface`), made the first
+    /// time the window draws one.
+    #[cfg(target_os = "linux")]
+    pub(in crate::window) layers: Option<crate::platform::wayland_layers::SurfaceLayers>,
 }
 
 #[cfg(target_os = "windows")]

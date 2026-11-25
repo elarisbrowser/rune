@@ -314,3 +314,60 @@ impl Importer {
         Ok(texture)
     }
 }
+
+/// A `wl_surface` of the app's that shows a surface's content (`NativeSurface::set_wayland_surface`),
+/// with what keeps it alive while Rune uses it.
+#[derive(Clone)]
+pub struct WaylandSurface {
+    surface: std::ptr::NonNull<std::ffi::c_void>,
+    _keep: Arc<dyn std::any::Any + Send + Sync>,
+}
+
+// SAFETY: a `wl_surface` proxy may be used from any thread (libwayland locks the display), and
+// `_keep` is Send + Sync.
+#[allow(unsafe_code)]
+unsafe impl Send for WaylandSurface {}
+// SAFETY: as for Send.
+#[allow(unsafe_code)]
+unsafe impl Sync for WaylandSurface {}
+
+impl WaylandSurface {
+    /// # Safety
+    /// `surface` is a live `wl_surface` proxy on the connection of the windows that draw the
+    /// surface, and stays live for as long as `keep` does.
+    #[allow(unsafe_code)]
+    pub unsafe fn new(surface: std::ptr::NonNull<std::ffi::c_void>, keep: Arc<dyn std::any::Any + Send + Sync>) -> Self {
+        Self { surface, _keep: keep }
+    }
+
+    /// The `wl_surface` proxy.
+    pub fn as_ptr(&self) -> *mut std::ffi::c_void {
+        self.surface.as_ptr()
+    }
+
+    /// Whether both name the same `wl_surface`.
+    pub fn same(&self, other: &Self) -> bool {
+        self.surface == other.surface
+    }
+}
+
+impl NativeSurface {
+    /// Shows this surface's content with `surface`, a `wl_surface` of the app's, instead of its
+    /// pushed frames: wherever the surface draws in a Wayland window, the window makes it a
+    /// subsurface under its own, at the surface's place, and leaves that place transparent, so the
+    /// compositor shows what the app commits to it as it commits it, with no frame of the
+    /// window's. Elements drawn over the surface stay over it, and the window's pixels round its
+    /// corners. A surface may be under one window at a time. `None` goes back to drawing pushed
+    /// frames.
+    pub fn set_wayland_surface(&self, surface: Option<WaylandSurface>) {
+        let shown = surface.is_some();
+        let old = std::mem::replace(&mut self.0.lock().unwrap().wayland, surface);
+        drop(old);
+        if shown {
+            // The surface draws one opaque texel over its whole place, which the window punches
+            // out: the subsurface shows the content.
+            let opaque = ByteFrame { width: 1, height: 1, format: Format::Bgra, color: ColorInfo::default(), planes: [vec![0, 0, 0, 255], Vec::new()] };
+            self.push_bytes(opaque, 0).expect("a 1x1 BGRA frame is valid");
+        }
+    }
+}

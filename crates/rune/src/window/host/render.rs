@@ -251,7 +251,21 @@ pub(super) fn prepare_window_render(
                 let ready = !keys.is_empty() && renderer.surface_punch_ready();
                 renderer.set_punched_surfaces(if ready { keys } else { Vec::new() });
             }
-            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            // App surfaces under a Wayland window (`NativeSurface::set_wayland_surface`): placed
+            // now, before the present that commits their positions, and punched once the window's
+            // pixels carry alpha for them to show through.
+            #[cfg(target_os = "linux")]
+            {
+                let wanted = rt.surfaces.iter().any(|d| d.surface.has_layer());
+                if wanted && l.native.layers.is_none() {
+                    l.native.layers = crate::platform::wayland_layers::SurfaceLayers::new(&l.window);
+                }
+                let shown = l.native.layers.as_mut().map_or_else(Vec::new, |layers| layers.sync(&rt.surfaces, f64::from(rt.window_scale())));
+                let see_through = l.config.alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied;
+                let ready = !shown.is_empty() && see_through && renderer.surface_punch_ready();
+                renderer.set_punched_surfaces(if ready { shown } else { Vec::new() });
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
             let _ = (renderer, rt);
         });
         #[cfg(target_os = "windows")]
@@ -399,6 +413,8 @@ pub(super) fn submit_and_present_window(
     }
     #[cfg(target_os = "windows")]
     l.native.video_layers.drawn(|key| renderer.surface_drew_isolated(key));
+    #[cfg(target_os = "linux")]
+    see_through_for_layers(l, gpu);
     crate::window::frame_presented();
     crate::render::gpu_events::presented();
     // The frame reached the screen: a surface replaced by `replace_lost_surface` works, and
@@ -480,4 +496,30 @@ pub(super) fn record_trace_frame(
         return true;
     }
     false
+}
+
+/// Once an app surface is under a Wayland window, the window's swap chain carries premultiplied
+/// alpha and the window drops its opaque region, so the places it punches out show the surface;
+/// the next frame punches them. It stays so for the window's life. Between frames, as the swap
+/// chain may only change with no drawable out.
+#[cfg(target_os = "linux")]
+fn see_through_for_layers(l: &mut crate::window::surface::Win, gpu: &crate::render::Gpu) {
+    let premultiplied = wgpu::CompositeAlphaMode::PreMultiplied;
+    if l.config.alpha_mode == premultiplied || !l.native.layers.as_ref().is_some_and(|layers| layers.any()) {
+        return;
+    }
+    let Some(surface) = l.surface.as_ref() else { return };
+    if crate::render::translucency::mode(surface, &gpu.adapter) != Some(premultiplied) {
+        return;
+    }
+    let mut config = l.config.clone();
+    config.alpha_mode = premultiplied;
+    match crate::window::surface::configure::configure(surface, gpu, &config) {
+        Ok(()) => {
+            l.config = config;
+            l.window.set_transparent(true);
+            l.window.request_redraw();
+        }
+        Err(error) => eprintln!("rune: the window can't show surfaces under it: {error}"),
+    }
 }

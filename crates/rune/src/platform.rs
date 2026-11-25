@@ -4,6 +4,8 @@ pub(crate) mod activation;
 pub(crate) mod app_icon;
 #[cfg(target_os = "macos")]
 pub(crate) mod display_link;
+#[cfg(target_os = "linux")]
+pub(crate) mod wayland_layers;
 #[cfg(target_vendor = "apple")]
 pub mod embed;
 #[cfg(any(test, target_vendor = "apple"))]
