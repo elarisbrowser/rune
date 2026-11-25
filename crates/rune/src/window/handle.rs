@@ -180,6 +180,13 @@ impl WindowHandle {
         let handle = window.window_handle().map_err(|e| e.to_string())?;
         Ok(f(handle))
     }
+    /// Borrow the raw display handle the window belongs to, such as its Wayland `wl_display`,
+    /// which outlives every window.
+    pub fn with_raw_display_handle<R>(&self, f: impl for<'a> FnOnce(winit::raw_window_handle::DisplayHandle<'a>) -> R) -> Result<R, String> {
+        let window = self.window()?;
+        let handle = winit::raw_window_handle::HasDisplayHandle::display_handle(&*window).map_err(|e| e.to_string())?;
+        Ok(f(handle))
+    }
 }
 
 #[cfg(target_os = "macos")]
