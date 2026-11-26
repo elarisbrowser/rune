@@ -1,1 +1,1 @@
-- macOS hosted surfaces clip remote content with an outer rounded layer, avoiding black corners.
+- macOS hosted surfaces follow inherited rounded clips on an outer layer, keeping Rune's page background visible in the corners.

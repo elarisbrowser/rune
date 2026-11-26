@@ -71,7 +71,7 @@ pub(crate) struct Materials {
     /// Surfaces' own layers (`NativeSurface::set_layer`) are on: the frame presents with them.
     layers_on: bool,
     /// The surface layers in the host, by key, with an outer layer to clip remote content.
-    layers: Vec<(usize, Retained<AnyObject>, Retained<AnyObject>, [f64; 5])>,
+    layers: Vec<(usize, Retained<AnyObject>, Retained<AnyObject>, [f64; 9])>,
 }
 
 impl Materials {
@@ -274,8 +274,25 @@ impl Materials {
             let key = d.surface.key();
             if kept.contains(&key) { continue; }
             kept.push(key);
-            let radius = f64::from(super::clamp_radius(d.radii, d.rect[2], d.rect[3])) / scale;
-            let place = [f64::from(d.rect[0]) / scale, f64::from(d.rect[1]) / scale, f64::from(d.rect[2]) / scale, f64::from(d.rect[3]) / scale, radius];
+            let (clip_rect, clip_radii) = if d.fade[3] != 0 {
+                let radii = crate::render::unpack_clip_radii(d.fade[3]);
+                ([d.clip[0], d.clip[1], d.clip[2] - d.clip[0], d.clip[3] - d.clip[1]], radii)
+            } else {
+                (d.rect, d.radii)
+            };
+            let radius = clip_radii.into_iter().fold(0.0f32, |max, r| max.max(r.abs()))
+                .min(clip_rect[2].min(clip_rect[3]) * 0.5);
+            let place = [
+                f64::from(clip_rect[0]) / scale,
+                f64::from(clip_rect[1]) / scale,
+                f64::from(clip_rect[2]) / scale,
+                f64::from(clip_rect[3]) / scale,
+                f64::from(radius) / scale,
+                f64::from(d.rect[0] - clip_rect[0]) / scale,
+                f64::from(d.rect[1] - clip_rect[1]) / scale,
+                f64::from(d.rect[2]) / scale,
+                f64::from(d.rect[3]) / scale,
+            ];
             let at = self.layers.iter().position(|(k, ..)| *k == key);
             let changed_layer = at.is_none_or(|i| !std::ptr::eq(Retained::as_ptr(&self.layers[i].2), Retained::as_ptr(&layer)));
             let changed_place = at.is_none_or(|i| self.layers[i].3 != place);
@@ -292,7 +309,7 @@ impl Materials {
                         }
                         let _: () = msg_send![&*clip, addSublayer: &*layer];
                     }
-                    let _: () = msg_send![&*layer, setFrame: rect(0.0, 0.0, place[2], place[3])];
+                    let _: () = msg_send![&*layer, setFrame: rect(place[5], place[6], place[7], place[8])];
                     let parent: *mut AnyObject = msg_send![&*clip, superlayer];
                     if !std::ptr::eq(parent, host_layer) {
                         let _: () = msg_send![host_layer, addSublayer: &*clip];
