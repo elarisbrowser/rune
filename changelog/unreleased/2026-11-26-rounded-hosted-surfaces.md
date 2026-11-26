@@ -1,0 +1,1 @@
+- macOS hosted surfaces clip remote content with an outer rounded layer, avoiding black corners.

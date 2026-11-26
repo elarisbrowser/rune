@@ -10,32 +10,50 @@
 
 #![allow(unsafe_code)]
 
-use super::{assign, MaterialDraw, Mode, PresentFlag, SystemMaterial, MAX_NATIVE_MATERIALS};
-use rune_motion::NodeId;
-use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+use super::{MAX_NATIVE_MATERIALS, MaterialDraw, Mode, PresentFlag, SystemMaterial, assign};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{msg_send, sel};
+use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+use rune_motion::NodeId;
 use std::{cell::Cell, rc::Rc};
 
 /// The host view: flipped, so frames come straight from Rune's top-left points, and never hit,
 /// so clicks fall through to winit's view behind it in the hit-test order.
 fn host_class() -> Option<&'static AnyClass> {
     const NAME: &std::ffi::CStr = c"RuneMaterialHost";
-    if let Some(class) = AnyClass::get(NAME) { return Some(class); }
+    if let Some(class) = AnyClass::get(NAME) {
+        return Some(class);
+    }
     let mut builder = ClassBuilder::new(NAME, AnyClass::get(c"NSView")?)?;
-    unsafe extern "C-unwind" fn flipped(_: &AnyObject, _: Sel) -> Bool { Bool::YES }
-    unsafe extern "C-unwind" fn hit_test(_: &AnyObject, _: Sel, _: CGPoint) -> *mut AnyObject { std::ptr::null_mut() }
+    unsafe extern "C-unwind" fn flipped(_: &AnyObject, _: Sel) -> Bool {
+        Bool::YES
+    }
+    unsafe extern "C-unwind" fn hit_test(_: &AnyObject, _: Sel, _: CGPoint) -> *mut AnyObject {
+        std::ptr::null_mut()
+    }
     // SAFETY: the signatures match -[NSView isFlipped] and -[NSView hitTest:].
     unsafe {
-        builder.add_method(sel!(isFlipped), flipped as unsafe extern "C-unwind" fn(_, _) -> _);
-        builder.add_method(sel!(hitTest:), hit_test as unsafe extern "C-unwind" fn(_, _, _) -> _);
+        builder.add_method(
+            sel!(isFlipped),
+            flipped as unsafe extern "C-unwind" fn(_, _) -> _,
+        );
+        builder.add_method(
+            sel!(hitTest:),
+            hit_test as unsafe extern "C-unwind" fn(_, _, _) -> _,
+        );
     }
     Some(builder.register())
 }
 
 fn rect(x: f64, y: f64, w: f64, h: f64) -> CGRect {
-    CGRect { origin: CGPoint { x, y }, size: CGSize { width: w, height: h } }
+    CGRect {
+        origin: CGPoint { x, y },
+        size: CGSize {
+            width: w,
+            height: h,
+        },
+    }
 }
 
 struct Slot {
@@ -70,22 +88,38 @@ pub(crate) struct Materials {
     slots: Vec<Slot>,
     /// Surfaces' own layers (`NativeSurface::set_layer`) are on: the frame presents with them.
     layers_on: bool,
-    /// The surface layers in the host, by surface key, and the place each was given.
-    layers: Vec<(usize, Retained<AnyObject>, [f64; 5])>,
+    /// The surface layers in the host, by key, with an outer layer to clip remote content.
+    layers: Vec<(usize, Retained<AnyObject>, Retained<AnyObject>, [f64; 5])>,
 }
 
 impl Materials {
     pub(crate) fn new() -> Self {
-        Materials { mode: Mode::from_env(), active: false, view: None, host: None, metal: None, flag: Rc::default(), live_end: None, slots: Vec::new(), layers_on: false, layers: Vec::new() }
+        Materials {
+            mode: Mode::from_env(),
+            active: false,
+            view: None,
+            host: None,
+            metal: None,
+            flag: Rc::default(),
+            live_end: None,
+            slots: Vec::new(),
+            layers_on: false,
+            layers: Vec::new(),
+        }
     }
 
     /// Whether this frame's elements should leave their interior to native views.
-    pub(crate) fn native(&self) -> bool { self.active }
+    pub(crate) fn native(&self) -> bool {
+        self.active
+    }
 
     /// Whether `present` would only present: no material views to move with the drawable, and
     /// the layer presents without transactions, so the present can happen on another thread.
     pub(crate) fn presents_plainly(&self) -> bool {
-        !self.active && self.slots.iter().all(|s| s.shown.is_none()) && self.layers.is_empty() && !self.flag.get().written()
+        !self.active
+            && self.slots.iter().all(|s| s.shown.is_none())
+            && self.layers.is_empty()
+            && !self.flag.get().written()
     }
 
     fn update_flag(&self, f: impl FnOnce(&mut PresentFlag) -> Option<bool>) -> Option<bool> {
@@ -98,38 +132,71 @@ impl Materials {
     /// A window frame animation started or stopped: it presents with transactions while it
     /// moves, and native materials keep them on after it lands.
     pub(crate) fn set_moving(&mut self, surface: &wgpu::Surface<'_>, on: bool) {
-        if let Some(on) = self.update_flag(|f| f.moving(on)) { crate::platform::macos::present_with_transaction(surface, on); }
+        if let Some(on) = self.update_flag(|f| f.moving(on)) {
+            crate::platform::macos::present_with_transaction(surface, on);
+        }
     }
 
     /// The user started or stopped dragging the window's edge: each frame of the drag presents
     /// in the transaction that resizes the window, and `NSWindowDidEndLiveResizeNotification`
     /// turns it off as soon as they let go even if the window is idle afterwards.
-    pub(crate) fn set_live(&mut self, window: &winit::window::Window, surface: &wgpu::Surface<'_>, on: bool) {
-        if on && self.live_end.is_none()
-            && let (Some(win), Some(metal)) = (crate::platform::macos::ns_window(window), metal_layer(surface))
+    pub(crate) fn set_live(
+        &mut self,
+        window: &winit::window::Window,
+        surface: &wgpu::Surface<'_>,
+        on: bool,
+    ) {
+        if on
+            && self.live_end.is_none()
+            && let (Some(win), Some(metal)) = (
+                crate::platform::macos::ns_window(window),
+                metal_layer(surface),
+            )
         {
             self.live_end = watch_live_end(&win, &metal, self.flag.clone());
         }
-        if let Some(on) = self.update_flag(|f| f.live(on)) { crate::platform::macos::present_with_transaction(surface, on); }
+        if let Some(on) = self.update_flag(|f| f.live(on)) {
+            crate::platform::macos::present_with_transaction(surface, on);
+        }
     }
 
     /// After a build: switches native views on when a transparent window's frame found material
     /// elements, and off when it found none. True when it switched them on, so the caller
     /// drops this frame's drawable, builds again natively and acquires another: wgpu reads
     /// `presentsWithTransaction` when it acquires a drawable, and this one is already out.
-    pub(crate) fn update(&mut self, transparent: bool, found: bool, window: &winit::window::Window, surface: &wgpu::Surface<'_>) -> bool {
+    pub(crate) fn update(
+        &mut self,
+        transparent: bool,
+        found: bool,
+        window: &winit::window::Window,
+        surface: &wgpu::Surface<'_>,
+    ) -> bool {
         if self.active && !found {
             // `present` hides the views in this frame's transaction; they stay for the next activation.
             self.active = false;
-            if let Some(on) = self.update_flag(|f| f.materials(false)) { crate::platform::macos::present_with_transaction(surface, on); }
+            if let Some(on) = self.update_flag(|f| f.materials(false)) {
+                crate::platform::macos::present_with_transaction(surface, on);
+            }
             return false;
         }
-        if self.active || !found || !transparent || self.mode == Mode::Off { return false; }
-        let Some(view) = crate::platform::macos::content_view(window) else { return false };
+        if self.active || !found || !transparent || self.mode == Mode::Off {
+            return false;
+        }
+        let Some(view) = crate::platform::macos::content_view(window) else {
+            return false;
+        };
         // SAFETY: winit's content view outlives this retain, which only adds a reference.
-        let Some(view) = (unsafe { Retained::retain(Retained::as_ptr(&view).cast::<AnyObject>().cast_mut()) }) else { return false };
-        let Some(metal) = metal_layer(surface) else { return false };
-        if self.mode != Mode::Unsynced && let Some(on) = self.update_flag(|f| f.materials(true)) {
+        let Some(view) =
+            (unsafe { Retained::retain(Retained::as_ptr(&view).cast::<AnyObject>().cast_mut()) })
+        else {
+            return false;
+        };
+        let Some(metal) = metal_layer(surface) else {
+            return false;
+        };
+        if self.mode != Mode::Unsynced
+            && let Some(on) = self.update_flag(|f| f.materials(true))
+        {
             crate::platform::macos::present_with_transaction(surface, on);
         }
         self.view = Some(view);
@@ -143,26 +210,52 @@ impl Materials {
     /// stops being opaque so they show through the places the frame punches out, and frames
     /// present with transactions so a layer moves with the UI around it. True when that
     /// switched on, so the caller acquires another drawable, as for `update`.
-    pub(crate) fn update_layers(&mut self, transparent: bool, found: bool, window: &winit::window::Window, surface: &wgpu::Surface<'_>) -> bool {
-        if found == self.layers_on { return false; }
-        if !found && !transparent && let Some(metal) = self.metal.as_deref() {
+    pub(crate) fn update_layers(
+        &mut self,
+        transparent: bool,
+        found: bool,
+        window: &winit::window::Window,
+        surface: &wgpu::Surface<'_>,
+    ) -> bool {
+        if found == self.layers_on {
+            return false;
+        }
+        if !found
+            && !transparent
+            && let Some(metal) = self.metal.as_deref()
+        {
             // SAFETY: a CALayer setter on the main thread; an opaque window's layer is opaque again.
-            unsafe { let _: () = msg_send![metal, setOpaque: true]; }
+            unsafe {
+                let _: () = msg_send![metal, setOpaque: true];
+            }
         }
         if found {
             if self.view.is_none() {
-                let Some(view) = crate::platform::macos::content_view(window) else { return false };
+                let Some(view) = crate::platform::macos::content_view(window) else {
+                    return false;
+                };
                 // SAFETY: winit's content view outlives this retain, which only adds a reference.
-                self.view = unsafe { Retained::retain(Retained::as_ptr(&view).cast::<AnyObject>().cast_mut()) };
+                self.view = unsafe {
+                    Retained::retain(Retained::as_ptr(&view).cast::<AnyObject>().cast_mut())
+                };
             }
-            if self.metal.is_none() { self.metal = metal_layer(surface); }
-            let Some(metal) = self.metal.as_deref() else { return false };
+            if self.metal.is_none() {
+                self.metal = metal_layer(surface);
+            }
+            let Some(metal) = self.metal.as_deref() else {
+                return false;
+            };
             // SAFETY: a CALayer setter on the main thread.
-            unsafe { let _: () = msg_send![metal, setOpaque: false]; }
+            unsafe {
+                let _: () = msg_send![metal, setOpaque: false];
+            }
         }
         self.layers_on = found;
         match self.update_flag(|f| f.layers(found)) {
-            Some(on) => { crate::platform::macos::present_with_transaction(surface, on); on }
+            Some(on) => {
+                crate::platform::macos::present_with_transaction(surface, on);
+                on
+            }
             None => false,
         }
     }
@@ -170,41 +263,70 @@ impl Materials {
     /// Presents the frame with the material views matching `draws` and the surface layers
     /// matching `surfaces`: in one transaction with the drawable when synced, or just before it
     /// otherwise.
-    pub(crate) fn present(&mut self, draws: &[MaterialDraw], surfaces: &[crate::native_surface::SurfaceDraw], scale: f32, present: impl FnOnce()) {
-        if !self.active && self.slots.iter().all(|s| s.shown.is_none()) && !self.layers_on && self.layers.is_empty() { return present(); }
+    pub(crate) fn present(
+        &mut self,
+        draws: &[MaterialDraw],
+        surfaces: &[crate::native_surface::SurfaceDraw],
+        scale: f32,
+        present: impl FnOnce(),
+    ) {
+        if !self.active
+            && self.slots.iter().all(|s| s.shown.is_none())
+            && !self.layers_on
+            && self.layers.is_empty()
+        {
+            return present();
+        }
         let draws = if self.active { draws } else { &[] };
         let transaction = AnyClass::get(c"CATransaction");
         let synced = self.mode != Mode::Unsynced && transaction.is_some();
         if let Some(t) = transaction {
             // SAFETY: CATransaction class methods on the main thread, balanced below.
-            unsafe { let _: () = msg_send![t, begin]; let _: () = msg_send![t, setDisableActions: true]; }
+            unsafe {
+                let _: () = msg_send![t, begin];
+                let _: () = msg_send![t, setDisableActions: true];
+            }
         }
         self.sync(draws, scale);
         self.sync_layers(if self.layers_on { surfaces } else { &[] }, scale);
         if !synced && let Some(t) = transaction {
             // SAFETY: closes the transaction opened above.
-            unsafe { let _: () = msg_send![t, commit]; }
+            unsafe {
+                let _: () = msg_send![t, commit];
+            }
         }
         present();
         if synced && let Some(t) = transaction {
             // SAFETY: closes the transaction opened above, with the drawable inside it.
-            unsafe { let _: () = msg_send![t, commit]; }
+            unsafe {
+                let _: () = msg_send![t, commit];
+            }
         }
     }
 
     fn sync(&mut self, draws: &[MaterialDraw], scale: f32) {
         let draws = &draws[..draws.len().min(MAX_NATIVE_MATERIALS)];
-        if draws.is_empty() && self.slots.iter().all(|s| s.shown.is_none()) { return; }
+        if draws.is_empty() && self.slots.iter().all(|s| s.shown.is_none()) {
+            return;
+        }
         let Some(host) = self.host() else { return };
         let mode = self.mode;
-        let wanted: Vec<_> = draws.iter().map(|d| (mode.resolve(d.material), d.id)).collect();
+        let wanted: Vec<_> = draws
+            .iter()
+            .map(|d| (mode.resolve(d.material), d.id))
+            .collect();
         let views: Vec<_> = self.slots.iter().map(|s| (s.material, s.owner)).collect();
         let mut taken = vec![false; self.slots.len()];
-        for (draw, (at, &(material, id))) in draws.iter().zip(assign(&views, &wanted).into_iter().zip(&wanted)) {
+        for (draw, (at, &(material, id))) in draws
+            .iter()
+            .zip(assign(&views, &wanted).into_iter().zip(&wanted))
+        {
             let k = match at {
                 Some(k) => k,
                 None => {
-                    let Some(slot) = make_view(material, &host) else { continue };
+                    let Some(slot) = make_view(material, &host) else {
+                        continue;
+                    };
                     self.slots.push(slot);
                     taken.push(false);
                     self.slots.len() - 1
@@ -219,16 +341,23 @@ impl Materials {
             let view = &*slot.view;
             // SAFETY: NSView and NSGlassEffectView setters and CALayer properties on the main thread.
             unsafe {
-                if slot.shown != Some(alpha) { let _: () = msg_send![view, setAlphaValue: alpha]; }
+                if slot.shown != Some(alpha) {
+                    let _: () = msg_send![view, setAlphaValue: alpha];
+                }
                 if slot.shape != Some(shape) {
-                    let _: () = msg_send![view, setFrame: rect(frame[0], frame[1], frame[2], frame[3])];
+                    let _: () =
+                        msg_send![view, setFrame: rect(frame[0], frame[1], frame[2], frame[3])];
                     if slot.glass {
                         let _: () = msg_send![view, setCornerRadius: radius];
                     } else {
                         let layer: *mut AnyObject = msg_send![view, layer];
                         if let Some(layer) = layer.as_ref() {
                             let _: () = msg_send![layer, setCornerRadius: radius];
-                            let curve: &AnyObject = if draw.continuous { kCACornerCurveContinuous } else { kCACornerCurveCircular };
+                            let curve: &AnyObject = if draw.continuous {
+                                kCACornerCurveContinuous
+                            } else {
+                                kCACornerCurveCircular
+                            };
                             let _: () = msg_send![layer, setCornerCurve: curve];
                         }
                     }
@@ -239,10 +368,17 @@ impl Materials {
             slot.shape = Some(shape);
             slot.shown = Some(alpha);
         }
-        for (slot, _) in self.slots.iter_mut().zip(taken).filter(|(s, taken)| !taken && s.shown.is_some()) {
+        for (slot, _) in self
+            .slots
+            .iter_mut()
+            .zip(taken)
+            .filter(|(s, taken)| !taken && s.shown.is_some())
+        {
             // SAFETY: an NSView setter on the main thread. Zero alpha rather than hidden keeps
             // the view's backdrop layers, as at creation.
-            unsafe { let _: () = msg_send![&*slot.view, setAlphaValue: 0.0f64]; }
+            unsafe {
+                let _: () = msg_send![&*slot.view, setAlphaValue: 0.0f64];
+            }
             slot.shown = None;
             slot.owner = None;
         }
@@ -251,9 +387,15 @@ impl Materials {
         while k > 0 {
             k -= 1;
             let spare = |s: &Slot| s.shown.is_none();
-            if spare(&self.slots[k]) && self.slots[..k].iter().any(|s| spare(s) && s.material == self.slots[k].material) {
+            if spare(&self.slots[k])
+                && self.slots[..k]
+                    .iter()
+                    .any(|s| spare(s) && s.material == self.slots[k].material)
+            {
                 // SAFETY: removes a view this struct added to the host.
-                unsafe { let _: () = msg_send![&*self.slots.remove(k).view, removeFromSuperview]; }
+                unsafe {
+                    let _: () = msg_send![&*self.slots.remove(k).view, removeFromSuperview];
+                }
             }
         }
     }
@@ -261,47 +403,82 @@ impl Materials {
     /// Puts each drawn surface's layer at its place, in points, rounded as the punch is, and
     /// takes out the layers of surfaces no longer drawn.
     fn sync_layers(&mut self, surfaces: &[crate::native_surface::SurfaceDraw], scale: f32) {
-        if surfaces.is_empty() && self.layers.is_empty() { return; }
+        if surfaces.is_empty() && self.layers.is_empty() {
+            return;
+        }
         let Some(host) = self.host() else { return };
         // SAFETY: an NSView getter on the main thread.
         let host_layer: *mut AnyObject = unsafe { msg_send![&*host, layer] };
         // SAFETY: AppKit keeps the host view's layer alive while the view is.
-        let Some(host_layer) = (unsafe { host_layer.as_ref() }) else { return };
+        let Some(host_layer) = (unsafe { host_layer.as_ref() }) else {
+            return;
+        };
         let scale = f64::from(scale.max(f32::EPSILON));
         let mut kept = Vec::with_capacity(surfaces.len());
         for d in surfaces {
-            let Some(layer) = d.surface.layer() else { continue };
+            let Some(layer) = d.surface.layer() else {
+                continue;
+            };
             let key = d.surface.key();
-            if kept.contains(&key) { continue; }
+            if kept.contains(&key) {
+                continue;
+            }
             kept.push(key);
             let radius = f64::from(super::clamp_radius(d.radii, d.rect[2], d.rect[3])) / scale;
-            let place = [f64::from(d.rect[0]) / scale, f64::from(d.rect[1]) / scale, f64::from(d.rect[2]) / scale, f64::from(d.rect[3]) / scale, radius];
+            let place = [
+                f64::from(d.rect[0]) / scale,
+                f64::from(d.rect[1]) / scale,
+                f64::from(d.rect[2]) / scale,
+                f64::from(d.rect[3]) / scale,
+                radius,
+            ];
             let at = self.layers.iter().position(|(k, ..)| *k == key);
-            let changed = at.is_none_or(|i| self.layers[i].2 != place || !std::ptr::eq(Retained::as_ptr(&self.layers[i].1), Retained::as_ptr(&layer)));
-            if changed {
-                // SAFETY: CALayer calls on the main thread; the layer is the app's, retained by its surface.
+            let clip = at.map(|i| self.layers[i].1.clone()).unwrap_or_else(|| {
+                // A CALayerHost can expose black corners when it masks its remote contents
+                // directly. Clip it as a child of an ordinary CALayer instead.
+                unsafe { msg_send![AnyClass::get(c"CALayer").expect("QuartzCore"), new] }
+            });
+            let changed_layer = at.is_none_or(|i| {
+                !std::ptr::eq(
+                    Retained::as_ptr(&self.layers[i].2),
+                    Retained::as_ptr(&layer),
+                )
+            });
+            let changed_place = at.is_none_or(|i| self.layers[i].3 != place);
+            if changed_layer || changed_place {
+                // SAFETY: CALayer calls on the main thread; the remote layer and its clip are retained here.
                 unsafe {
-                    let parent: *mut AnyObject = msg_send![&*layer, superlayer];
-                    if !std::ptr::eq(parent, host_layer) {
-                        let _: () = msg_send![host_layer, addSublayer: &*layer];
+                    if changed_layer {
+                        if let Some(i) = at {
+                            let _: () = msg_send![&*self.layers[i].2, removeFromSuperlayer];
+                        }
+                        let _: () = msg_send![&*clip, addSublayer: &*layer];
                     }
-                    let _: () = msg_send![&*layer, setFrame: rect(place[0], place[1], place[2], place[3])];
-                    let _: () = msg_send![&*layer, setMasksToBounds: true];
-                    let _: () = msg_send![&*layer, setCornerRadius: radius];
-                    let _: () = msg_send![&*layer, setCornerCurve: kCACornerCurveContinuous];
-                    let _: () = msg_send![&*layer, setHidden: false];
+                    let _: () = msg_send![&*layer, setFrame: rect(0.0, 0.0, place[2], place[3])];
+                    let parent: *mut AnyObject = msg_send![&*clip, superlayer];
+                    if !std::ptr::eq(parent, host_layer) {
+                        let _: () = msg_send![host_layer, addSublayer: &*clip];
+                    }
+                    let _: () =
+                        msg_send![&*clip, setFrame: rect(place[0], place[1], place[2], place[3])];
+                    let _: () = msg_send![&*clip, setMasksToBounds: true];
+                    let _: () = msg_send![&*clip, setCornerRadius: radius];
+                    let _: () = msg_send![&*clip, setCornerCurve: kCACornerCurveContinuous];
+                    let _: () = msg_send![&*clip, setHidden: false];
                 }
             }
             match at {
-                Some(i) => self.layers[i] = (key, layer, place),
-                None => self.layers.push((key, layer, place)),
+                Some(i) => self.layers[i] = (key, clip, layer, place),
+                None => self.layers.push((key, clip, layer, place)),
             }
         }
-        self.layers.retain(|(key, layer, _)| {
+        self.layers.retain(|(key, clip, _, _)| {
             let keep = kept.contains(key);
             if !keep {
-                // SAFETY: removes a layer this struct added to the host.
-                unsafe { let _: () = msg_send![&**layer, removeFromSuperlayer]; }
+                // SAFETY: removes the clipping layer this struct added to the host.
+                unsafe {
+                    let _: () = msg_send![&**clip, removeFromSuperlayer];
+                }
             }
             keep
         });
@@ -330,10 +507,14 @@ impl Materials {
         unsafe {
             let root: *mut AnyObject = msg_send![&*view, layer];
             let host_layer: *mut AnyObject = msg_send![&*host, layer];
-            if let (Some(root), Some(host_layer), Some(metal)) = (root.as_ref(), host_layer.as_ref(), self.metal.as_deref()) {
+            if let (Some(root), Some(host_layer), Some(metal)) =
+                (root.as_ref(), host_layer.as_ref(), self.metal.as_deref())
+            {
                 let layers: *mut AnyObject = msg_send![root, sublayers];
                 if let Some(layers) = layers.as_ref() {
-                    let at = |layer: &AnyObject| -> usize { msg_send![layers, indexOfObjectIdenticalTo: layer] };
+                    let at = |layer: &AnyObject| -> usize {
+                        msg_send![layers, indexOfObjectIdenticalTo: layer]
+                    };
                     if at(metal) == usize::MAX {
                         let _: () = msg_send![root, insertSublayer: metal, above: host_layer];
                     }
@@ -356,14 +537,20 @@ impl Drop for Materials {
         }
         if let Some(host) = &self.host {
             // SAFETY: removes the host this struct added; drop runs on the main thread with the window.
-            unsafe { let _: () = msg_send![&**host, removeFromSuperview]; }
+            unsafe {
+                let _: () = msg_send![&**host, removeFromSuperview];
+            }
         }
     }
 }
 
 /// Turns `presentsWithTransaction` off when AppKit ends the user's live resize: winit sends
 /// no event for `windowDidEndLiveResize:`, so an idle window draws no frame after mouse-up.
-pub(super) fn watch_live_end(window: &AnyObject, layer: &Retained<AnyObject>, flag: Rc<Cell<PresentFlag>>) -> Option<Retained<AnyObject>> {
+pub(super) fn watch_live_end(
+    window: &AnyObject,
+    layer: &Retained<AnyObject>,
+    flag: Rc<Cell<PresentFlag>>,
+) -> Option<Retained<AnyObject>> {
     let center = AnyClass::get(c"NSNotificationCenter")?;
     let weak = objc2::rc::Weak::from_retained(layer);
     let block = block2::RcBlock::new(move |_: *mut AnyObject| {
@@ -372,7 +559,9 @@ pub(super) fn watch_live_end(window: &AnyObject, layer: &Retained<AnyObject>, fl
         flag.set(f);
         if let (Some(on), Some(layer)) = (change, weak.load()) {
             // SAFETY: a live CAMetalLayer on the main thread.
-            unsafe { let _: () = msg_send![&*layer, setPresentsWithTransaction: Bool::new(on)]; }
+            unsafe {
+                let _: () = msg_send![&*layer, setPresentsWithTransaction: Bool::new(on)];
+            }
         }
     });
     let name = objc2_foundation::NSString::from_str("NSWindowDidEndLiveResizeNotification");
@@ -385,7 +574,9 @@ pub(super) fn watch_live_end(window: &AnyObject, layer: &Retained<AnyObject>, fl
 }
 
 pub(super) fn unwatch_live_end(token: &AnyObject) {
-    let Some(center) = AnyClass::get(c"NSNotificationCenter") else { return };
+    let Some(center) = AnyClass::get(c"NSNotificationCenter") else {
+        return;
+    };
     // SAFETY: removes an observer `watch_live_end` added on the main thread.
     unsafe {
         let center: Retained<AnyObject> = msg_send![center, defaultCenter];
@@ -398,7 +589,11 @@ impl Mode {
     /// macOS 26 and in legacy mode.
     fn resolve(self, material: SystemMaterial) -> SystemMaterial {
         match material {
-            SystemMaterial::Glass if self == Mode::Legacy || AnyClass::get(c"NSGlassEffectView").is_none() => SystemMaterial::Popover,
+            SystemMaterial::Glass
+                if self == Mode::Legacy || AnyClass::get(c"NSGlassEffectView").is_none() =>
+            {
+                SystemMaterial::Popover
+            }
             other => other,
         }
     }
@@ -407,7 +602,11 @@ impl Mode {
 /// A transparent material view in `host`.
 fn make_view(material: SystemMaterial, host: &AnyObject) -> Option<Slot> {
     let glass = material == SystemMaterial::Glass;
-    let class = AnyClass::get(if glass { c"NSGlassEffectView" } else { c"NSVisualEffectView" })?;
+    let class = AnyClass::get(if glass {
+        c"NSGlassEffectView"
+    } else {
+        c"NSVisualEffectView"
+    })?;
     // SAFETY: AppKit initializers and setters on the main thread; the view is retained by its slot.
     unsafe {
         let alloc: *mut AnyObject = msg_send![class, alloc];
@@ -423,14 +622,23 @@ fn make_view(material: SystemMaterial, host: &AnyObject) -> Option<Slot> {
             let _: () = msg_send![&*view, setBlendingMode: 0isize];
             let _: () = msg_send![&*view, setState: 1isize];
             let layer: *mut AnyObject = msg_send![&*view, layer];
-            if let Some(layer) = layer.as_ref() { let _: () = msg_send![layer, setMasksToBounds: true]; }
+            if let Some(layer) = layer.as_ref() {
+                let _: () = msg_send![layer, setMasksToBounds: true];
+            }
         }
         // Built visible at zero alpha: AppKit skips a hidden glass view's backdrop layers until
         // its first visible frame, which then shows unrefracted.
         let _: () = msg_send![&*view, setAlphaValue: 0.0f64];
         let _: () = msg_send![host, addSubview: &*view];
         let _: () = msg_send![&*view, displayIfNeeded];
-        Some(Slot { view, material, glass, owner: None, shape: None, shown: None })
+        Some(Slot {
+            view,
+            material,
+            glass,
+            owner: None,
+            shape: None,
+            shown: None,
+        })
     }
 }
 
