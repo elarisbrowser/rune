@@ -321,7 +321,7 @@ impl Materials {
                     }
                     let _: () = msg_send![&*clip, setFrame: rect(place[0], place[1], place[2], place[3])];
                     let _: () = msg_send![&*clip, setMasksToBounds: true];
-                    let _: () = msg_send![&*clip, setCornerRadius: radius];
+                    let _: () = msg_send![&*clip, setCornerRadius: place[4]];
                     let _: () = msg_send![&*clip, setCornerCurve: kCACornerCurveContinuous];
                     let _: () = msg_send![&*clip, setHidden: false];
                 }
