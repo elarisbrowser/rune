@@ -18,6 +18,10 @@ use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{msg_send, sel};
 use std::{cell::Cell, rc::Rc};
 
+/// Lets the hosted layer extend beneath the window's opaque edge where its corner curve differs
+/// from the renderer's analytic clip by less than a device pixel.
+const CLIP_OVERLAP_PX: f32 = 1.0;
+
 /// The host view: flipped, so frames come straight from Rune's top-left points, and never hit,
 /// so clicks fall through to winit's view behind it in the hit-test order.
 fn host_class() -> Option<&'static AnyClass> {
@@ -280,7 +284,8 @@ impl Materials {
             } else {
                 (d.rect, d.radii)
             };
-            let radius = clip_radii.into_iter().fold(0.0f32, |max, r| max.max(r.abs()))
+            let radius = (clip_radii.into_iter().fold(0.0f32, |max, r| max.max(r.abs())) - CLIP_OVERLAP_PX)
+                .max(0.0)
                 .min(clip_rect[2].min(clip_rect[3]) * 0.5);
             let place = [
                 f64::from(clip_rect[0]) / scale,

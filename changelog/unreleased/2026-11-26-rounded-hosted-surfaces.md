@@ -1,1 +1,1 @@
-- macOS hosted surfaces follow inherited rounded clips on an outer layer, keeping Rune's page background visible in the corners.
+- macOS hosted surfaces follow inherited rounded clips and overlap the window's opaque edge by one device pixel, preventing corner gaps.
